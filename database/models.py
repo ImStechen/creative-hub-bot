@@ -140,4 +140,18 @@ class SystemTag(Base):
         return f"<SystemTag id={self.id} name={self.name}>"
 
 
+class FeedbackMessage(Base):
+    __tablename__ = 'feedback_messages'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(BigInteger, nullable=False)
+    full_name = Column(String, nullable=False)
+    username = Column(String, nullable=True)
+    text = Column(Text, nullable=False)
+    created_at = Column(String, nullable=False) # Формат YYYY-MM-DD HH:MM:SS
+
+    def __repr__(self):
+        return f"<FeedbackMessage id={self.id} user_id={self.user_id} text={self.text[:20]}...>"
+
+
 
