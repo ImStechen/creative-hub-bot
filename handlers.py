@@ -23,7 +23,8 @@ from keyboards import (
     get_archive_detail_keyboard,
     get_raffle_detail_keyboard,
     get_registration_keyboard,
-    get_agreement_keyboard
+    get_agreement_keyboard,
+    get_cancel_feedback_keyboard
 )
 
 router = Router()
@@ -37,6 +38,10 @@ class RegistrationStates(StatesGroup):
 class PreferencesStates(StatesGroup):
     editing_tags = State()
     editing_notifications = State()
+
+
+class FeedbackStates(StatesGroup):
+    waiting_for_message = State()
 
 
 def is_event_hidden(event: Event) -> bool:
@@ -981,3 +986,89 @@ async def process_raffle_info(callback: CallbackQuery):
                 disable_web_page_preview=True
             )
     await callback.answer()
+
+
+# ==========================================
+# 5. ОБРАТНАЯ СВЯЗЬ
+# ==========================================
+
+@router.callback_query(F.data == "btn_feedback")
+async def process_feedback_start(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(FeedbackStates.waiting_for_message)
+    feedback_prompt = (
+        "✍️ <b>Обратная связь</b>\n\n"
+        "Напишите ваше сообщение, отзыв или предложение. "
+        "Оно будет передано администраторам Креативного хаба."
+    )
+    await callback.message.answer(
+        feedback_prompt,
+        reply_markup=get_cancel_feedback_keyboard(),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "cancel_feedback", FeedbackStates.waiting_for_message)
+async def process_feedback_cancel(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    telegram_id = callback.from_user.id
+    username = callback.from_user.username
+    async with async_session() as session:
+        await show_main_page(callback.message, telegram_id, username, session)
+    await callback.answer("Обратная связь отменена")
+
+
+@router.message(FeedbackStates.waiting_for_message)
+async def process_feedback_message(message: Message, state: FSMContext):
+    feedback_text = message.text
+    if not feedback_text:
+        await message.answer(
+            "Пожалуйста, отправьте текстовое сообщение:",
+            reply_markup=get_cancel_feedback_keyboard()
+        )
+        return
+
+    telegram_id = message.from_user.id
+    username = message.from_user.username
+    full_name = message.from_user.full_name
+    username_str = f"@{username}" if username else "нет юзернейма"
+    
+    admin_notification = (
+        f"📬 <b>Новое сообщение обратной связи!</b>\n\n"
+        f"<b>Отправитель:</b> <a href=\"tg://user?id={telegram_id}\">{full_name}</a> ({username_str})\n"
+        f"<b>ID:</b> <code>{telegram_id}</code>\n\n"
+        f"<b>Сообщение:</b>\n{feedback_text}"
+    )
+
+    async with async_session() as session:
+        super_admin = config.SUPER_ADMIN_USERNAME.lstrip('@').lower()
+        
+        query_admins = select(Admin.username)
+        res_admins = await session.execute(query_admins)
+        admin_usernames = [u.lstrip('@').lower() for u in res_admins.scalars().all()]
+        admin_usernames.append(super_admin)
+        
+        query_users = select(User.telegram_id).where(
+            func.lower(User.username).in_(admin_usernames)
+        )
+        res_users = await session.execute(query_users)
+        admin_telegram_ids = set(res_users.scalars().all())
+
+    from aiogram import Bot
+    bot: Bot = message.bot
+    
+    for admin_id in admin_telegram_ids:
+        try:
+            await bot.send_message(
+                chat_id=admin_id,
+                text=admin_notification,
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+    await state.clear()
+    await message.answer("Спасибо! Ваше сообщение успешно отправлено администраторам.")
+    
+    async with async_session() as session:
+        await show_main_page(message, telegram_id, username, session)

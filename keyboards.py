@@ -8,7 +8,8 @@ def get_main_menu_keyboard(is_admin: bool, raffle_count: int) -> InlineKeyboardM
     buttons = [
         [InlineKeyboardButton(text="Подробнее о мероприятиях", callback_data="btn_events_info")],
         [InlineKeyboardButton(text="Настроить предпочтения", callback_data="btn_preferences")],
-        [InlineKeyboardButton(text="Архив пост-материалов", callback_data="btn_archive")]
+        [InlineKeyboardButton(text="Архив пост-материалов", callback_data="btn_archive")],
+        [InlineKeyboardButton(text="✍️ Обратная связь", callback_data="btn_feedback")]
     ]
     
     if raffle_count > 0:
@@ -18,6 +19,15 @@ def get_main_menu_keyboard(is_admin: bool, raffle_count: int) -> InlineKeyboardM
         buttons.append([InlineKeyboardButton(text="Администрирование", callback_data="btn_admin")])
         
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_cancel_feedback_keyboard() -> InlineKeyboardMarkup:
+    """
+    Генерирует инлайн-кнопку отмены обратной связи.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="Отмена", callback_data="cancel_feedback")]]
+    )
 
 
 def get_events_list_keyboard(events: list) -> InlineKeyboardMarkup:
