@@ -8,9 +8,12 @@ def get_main_menu_keyboard(is_admin: bool, raffle_count: int) -> InlineKeyboardM
     buttons = [
         [InlineKeyboardButton(text="Подробнее о мероприятиях", callback_data="btn_events_info")],
         [InlineKeyboardButton(text="Настроить предпочтения", callback_data="btn_preferences")],
-        [InlineKeyboardButton(text="Архив пост-материалов", callback_data="btn_archive")],
-        [InlineKeyboardButton(text="✍️ Обратная связь", callback_data="btn_feedback")]
+        [InlineKeyboardButton(text="Архив пост-материалов", callback_data="btn_archive")]
     ]
+    
+    # Кнопка обратной связи показывается только рядовым пользователям и без эмодзи
+    if not is_admin:
+        buttons.append([InlineKeyboardButton(text="Обратная связь", callback_data="btn_feedback")])
     
     if raffle_count > 0:
         buttons.append([InlineKeyboardButton(text=f"Розыгрыш ({raffle_count})", callback_data="btn_raffle")])

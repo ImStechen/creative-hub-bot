@@ -11,7 +11,7 @@ from keyboards import get_to_main_keyboard, get_event_notification_keyboard
 
 import config
 from database.db import async_session
-from database.models import User, Event, Raffle, Registration, Admin
+from database.models import User, Event, Raffle, Registration, Admin, FeedbackMessage
 from admin_keyboards import (
     get_admin_main_keyboard,
     get_skip_keyboard,
@@ -56,7 +56,8 @@ from admin_keyboards import (
     get_admin_export_events_keyboard,
     get_admin_export_archive_tags_keyboard,
     get_admin_export_archive_events_keyboard,
-    get_admin_export_back_keyboard
+    get_admin_export_back_keyboard,
+    get_feedback_navigation_keyboard
 )
 
 router = Router()
@@ -2464,5 +2465,105 @@ async def process_admin_export_event(callback: CallbackQuery):
         )
         
     await callback.answer()
+
+
+# ==========================================
+# ОБРАТНАЯ СВЯЗЬ (ПРОСМОТР АДМИНИСТРАТОРОМ)
+# ==========================================
+
+class AdminFeedbackStates(StatesGroup):
+    viewing = State()
+
+
+async def render_feedback_message(message: Message, feedback: FeedbackMessage, index: int, total: int):
+    text = (
+        f"💬 <b>Обращение {index + 1} из {total}</b>\n"
+        f"<b>Отправитель:</b> <a href=\"tg://user?id={feedback.user_id}\">{feedback.full_name}</a> "
+        f"({f'@{feedback.username}' if feedback.username else 'нет юзернейма'})\n"
+        f"<b>ID:</b> <code>{feedback.user_id}</code>\n"
+        f"<b>Дата отправки:</b> {feedback.created_at}\n\n"
+        f"<b>Текст обращения:</b>\n{feedback.text}"
+    )
+    await message.edit_text(
+        text,
+        reply_markup=get_feedback_navigation_keyboard(),
+        parse_mode="HTML",
+        disable_web_page_preview=True
+    )
+
+
+@router.callback_query(F.data == "admin_view_feedback")
+async def process_admin_view_feedback(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    async with async_session() as session:
+        if not await is_user_admin(callback.from_user.username, session):
+            await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
+            return
+
+        query = select(FeedbackMessage).order_by(FeedbackMessage.created_at.asc())
+        result = await session.execute(query)
+        feedbacks = result.scalars().all()
+
+        if not feedbacks:
+            await callback.message.answer(
+                "Сообщений обратной связи пока нет.",
+                reply_markup=get_cancel_keyboard(show_back=False)
+            )
+            await callback.answer()
+            return
+
+        total = len(feedbacks)
+        latest_idx = total - 1
+        await state.set_state(AdminFeedbackStates.viewing)
+        await state.update_data(current_feedback_index=latest_idx)
+        
+        await render_feedback_message(callback.message, feedbacks[latest_idx], latest_idx, total)
+        await callback.answer()
+
+
+@router.callback_query(F.data == "feedback_nav_prev", AdminFeedbackStates.viewing)
+async def process_feedback_nav_prev(callback: CallbackQuery, state: FSMContext):
+    async with async_session() as session:
+        query = select(FeedbackMessage).order_by(FeedbackMessage.created_at.asc())
+        result = await session.execute(query)
+        feedbacks = result.scalars().all()
+
+        if not feedbacks:
+            await state.clear()
+            await callback.message.edit_text("Сообщений обратной связи пока нет.", reply_markup=get_cancel_keyboard(show_back=False))
+            await callback.answer()
+            return
+
+        data = await state.get_data()
+        current_idx = data.get("current_feedback_index", 0)
+        total = len(feedbacks)
+        
+        new_idx = (current_idx - 1) % total
+        await state.update_data(current_feedback_index=new_idx)
+        await render_feedback_message(callback.message, feedbacks[new_idx], new_idx, total)
+        await callback.answer()
+
+
+@router.callback_query(F.data == "feedback_nav_next", AdminFeedbackStates.viewing)
+async def process_feedback_nav_next(callback: CallbackQuery, state: FSMContext):
+    async with async_session() as session:
+        query = select(FeedbackMessage).order_by(FeedbackMessage.created_at.asc())
+        result = await session.execute(query)
+        feedbacks = result.scalars().all()
+
+        if not feedbacks:
+            await state.clear()
+            await callback.message.edit_text("Сообщений обратной связи пока нет.", reply_markup=get_cancel_keyboard(show_back=False))
+            await callback.answer()
+            return
+
+        data = await state.get_data()
+        current_idx = data.get("current_feedback_index", 0)
+        total = len(feedbacks)
+        
+        new_idx = (current_idx + 1) % total
+        await state.update_data(current_feedback_index=new_idx)
+        await render_feedback_message(callback.message, feedbacks[new_idx], new_idx, total)
+        await callback.answer()
 
 

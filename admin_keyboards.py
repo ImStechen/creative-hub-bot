@@ -10,8 +10,23 @@ def get_admin_main_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="Редактировать теги", callback_data="admin_edit_tags")],
         [InlineKeyboardButton(text="Редактировать пост-материалы", callback_data="admin_edit_post_mats")],
         [InlineKeyboardButton(text="Редактировать розыгрыш", callback_data="admin_edit_raffles")],
+        [InlineKeyboardButton(text="Посмотреть обратную связь", callback_data="admin_view_feedback")],
         [InlineKeyboardButton(text="Права администратора", callback_data="admin_rights")],
         [InlineKeyboardButton(text="Назад", callback_data="back_to_main")]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_feedback_navigation_keyboard() -> InlineKeyboardMarkup:
+    """
+    Генерирует инлайн-кнопки перелистывания обратной связи по кругу.
+    """
+    buttons = [
+        [
+            InlineKeyboardButton(text="Назад", callback_data="feedback_nav_prev"),
+            InlineKeyboardButton(text="Дальше", callback_data="feedback_nav_next")
+        ],
+        [InlineKeyboardButton(text="В Администрирование", callback_data="btn_admin")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

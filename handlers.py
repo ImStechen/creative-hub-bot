@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import config
 from database.db import async_session
-from database.models import User, Event, Raffle, Registration, Admin, get_default_tags, get_default_notifications
+from database.models import User, Event, Raffle, Registration, Admin, get_default_tags, get_default_notifications, FeedbackMessage
 from keyboards import (
     get_main_menu_keyboard,
     get_events_list_keyboard,
@@ -1040,7 +1040,24 @@ async def process_feedback_message(message: Message, state: FSMContext):
         f"<b>Сообщение:</b>\n{feedback_text}"
     )
 
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Назад", callback_data="back_to_main")]
+    ])
+
     async with async_session() as session:
+        # Сохраняем сообщение в базе данных
+        new_feedback = FeedbackMessage(
+            user_id=telegram_id,
+            full_name=full_name,
+            username=username,
+            text=feedback_text,
+            created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+        session.add(new_feedback)
+        await session.commit()
+
+        # Ищем всех админов для рассылки
         super_admin = config.SUPER_ADMIN_USERNAME.lstrip('@').lower()
         
         query_admins = select(Admin.username)
@@ -1062,7 +1079,8 @@ async def process_feedback_message(message: Message, state: FSMContext):
             await bot.send_message(
                 chat_id=admin_id,
                 text=admin_notification,
-                parse_mode="HTML"
+                parse_mode="HTML",
+                reply_markup=back_kb
             )
         except Exception:
             pass
