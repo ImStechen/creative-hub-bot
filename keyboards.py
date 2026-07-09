@@ -195,7 +195,10 @@ def get_archive_tags_keyboard(tags: list, unread_tags: set = None) -> InlineKeyb
     if current_row:
         buttons.append(current_row)
         
-    buttons.append([InlineKeyboardButton(text="Назад", callback_data="back_to_main")])
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data="back_to_main"),
+        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -210,7 +213,10 @@ def get_archive_events_keyboard(events: list, unread_event_ids: set = None) -> I
         display_title = f"🔔 {event.title}" if event.id in unread_event_ids else event.title
         buttons.append([InlineKeyboardButton(text=display_title, callback_data=f"arch_event_{event.id}")])
         
-    buttons.append([InlineKeyboardButton(text="Назад", callback_data="btn_archive")])
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data="btn_archive"),
+        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 

@@ -1161,6 +1161,20 @@ async def test_suite():
         assert last_row_ad_ev[0].text == "Назад" and last_row_ad_ev[0].callback_data == "btn_admin"
         assert last_row_ad_ev[1].text == "← К списку" and last_row_ad_ev[1].callback_data == "back_to_main"
         
+        # 21.7 Archive tags selection keyboard
+        kb_arch_tags = get_archive_tags_keyboard([])
+        last_row_arch_tags = kb_arch_tags.inline_keyboard[-1]
+        assert len(last_row_arch_tags) == 2
+        assert last_row_arch_tags[0].text == "Назад" and last_row_arch_tags[0].callback_data == "back_to_main"
+        assert last_row_arch_tags[1].text == "← К списку" and last_row_arch_tags[1].callback_data == "back_to_main"
+        
+        # 21.8 Archive events list keyboard
+        kb_arch_evs = get_archive_events_keyboard([])
+        last_row_arch_evs = kb_arch_evs.inline_keyboard[-1]
+        assert len(last_row_arch_evs) == 2
+        assert last_row_arch_evs[0].text == "Назад" and last_row_arch_evs[0].callback_data == "btn_archive"
+        assert last_row_arch_evs[1].text == "← К списку" and last_row_arch_evs[1].callback_data == "back_to_main"
+        
         print("Horizontal navigation buttons test PASSED!")
 
 
