@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import config
 from database.db import async_session
-from database.models import User, Event, Raffle, Registration, Admin, get_default_tags, get_default_notifications, FeedbackMessage
+from database.models import User, Event, Raffle, Registration, Admin, get_default_tags, get_default_notifications, FeedbackMessage, ReadPostMaterials, PartnerEvent
 from keyboards import (
     get_main_menu_keyboard,
     get_events_list_keyboard,
@@ -24,7 +24,8 @@ from keyboards import (
     get_raffle_detail_keyboard,
     get_registration_keyboard,
     get_agreement_keyboard,
-    get_cancel_feedback_keyboard
+    get_cancel_feedback_keyboard,
+    get_to_main_back_keyboard
 )
 
 router = Router()
@@ -485,6 +486,30 @@ async def process_back_to_main(callback: CallbackQuery, state: FSMContext):
 # 1. ПРОСМОТР МЕРОПРИЯТИЙ
 # ==========================================
 
+def get_event_end_date(date_str: str) -> datetime:
+    try:
+        if "-" in date_str:
+            parts = date_str.split("-")
+            end_date_str = parts[1].strip()
+        else:
+            end_date_str = date_str.strip()
+        return datetime.strptime(end_date_str, "%d.%m.%Y")
+    except Exception:
+        return datetime.now()
+
+
+def get_event_start_date(date_str: str) -> datetime:
+    try:
+        if "-" in date_str:
+            parts = date_str.split("-")
+            start_date_str = parts[0].strip()
+        else:
+            start_date_str = date_str.strip()
+        return datetime.strptime(start_date_str, "%d.%m.%Y")
+    except Exception:
+        return datetime.now()
+
+
 @router.callback_query(F.data == "btn_events_info")
 async def process_events_info(callback: CallbackQuery, state: FSMContext):
     await state.clear()
@@ -505,17 +530,76 @@ async def process_events_info(callback: CallbackQuery, state: FSMContext):
             event_tags = e.tags or []
             if any(tag in active_user_tags for tag in event_tags):
                 active_events.append(e)
+                
+        # Count actual partner events
+        partners_query = select(PartnerEvent)
+        partners_res = await session.execute(partners_query)
+        all_partners = partners_res.scalars().all()
+        
+        today = datetime.now().date()
+        actual_partners_count = 0
+        for pe in all_partners:
+            end_date = get_event_end_date(pe.date).date()
+            if today <= end_date:
+                actual_partners_count += 1
         
         if not active_events:
             await callback.message.answer(
                 "На данный момент нет запланированных мероприятий по вашим интересам.",
-                reply_markup=get_events_list_keyboard([])
+                reply_markup=get_events_list_keyboard([], actual_partners_count)
             )
         else:
             await callback.message.answer(
                 "Выберите интересующее мероприятие.",
-                reply_markup=get_events_list_keyboard(active_events)
+                reply_markup=get_events_list_keyboard(active_events, actual_partners_count)
             )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "btn_partners_events")
+async def process_partners_events(callback: CallbackQuery):
+    async with async_session() as session:
+        partners_query = select(PartnerEvent)
+        partners_res = await session.execute(partners_query)
+        all_partners = partners_res.scalars().all()
+        
+        today = datetime.now().date()
+        actual_partners = []
+        for pe in all_partners:
+            end_date = get_event_end_date(pe.date).date()
+            if today <= end_date:
+                actual_partners.append(pe)
+                
+        if not actual_partners:
+            await callback.message.answer(
+                "Мероприятия партнёров Хаба:\n\nНа данный момент нет актуальных мероприятий партнеров.",
+                reply_markup=get_to_main_back_keyboard()
+            )
+            await callback.answer()
+            return
+            
+        # Sort chronologically (closest to latest)
+        actual_partners.sort(key=lambda x: get_event_start_date(x.date))
+        
+        lines = ["Мероприятия партнёров Хаба:"]
+        for pe in actual_partners:
+            display_date = config.format_display_date(pe.date)
+            item_text = (
+                f"\n"
+                f"{display_date} {pe.title}\n"
+                f"{pe.description}\n"
+                f"<b><a href=\"{pe.link}\">→ Подробности</a></b>\n"
+            )
+            lines.append(item_text)
+            
+        text = "\n".join(lines)
+        
+        await callback.message.answer(
+            text,
+            reply_markup=get_to_main_back_keyboard(),
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
     await callback.answer()
 
 
@@ -733,7 +817,9 @@ async def process_pref_tags(callback: CallbackQuery, state: FSMContext):
         await state.update_data(temp_preferences=tags_data)
         
         await callback.message.answer(
-            "Выберите любимые темы мероприятий, о которых хотите получать уведомления:",
+            "Прокликайте темы мероприятий, о которых хотите получать уведомления.\n"
+            "✅ — уведомления включены\n"
+            "❌ — уведомления выключены",
             reply_markup=get_checkbox_keyboard(tags_data, "tags")
         )
     await callback.answer()
@@ -826,17 +912,40 @@ async def process_save_preferences(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "btn_archive")
 async def process_archive_menu(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.answer(
-        "Здесь хранятся статьи, фотографии, презентации спикеров и записи трансляций всех мероприятий Креативного хаба.\n\n"
-        "Выберите интересующую тематику мероприятия, чтобы начать поиск.",
-        reply_markup=get_archive_tags_keyboard(config.DEFAULT_TAGS)
-    )
+    telegram_id = callback.from_user.id
+    async with async_session() as session:
+        user = await session.get(User, telegram_id)
+        tags_pref = dict(user.tags_preferences or {})
+        active_tags = {tag for tag, val in tags_pref.items() if val}
+        
+        read_query = select(ReadPostMaterials.event_id).where(ReadPostMaterials.user_id == telegram_id)
+        read_res = await session.execute(read_query)
+        read_event_ids = set(read_res.scalars().all())
+        
+        events_query = select(Event)
+        events_res = await session.execute(events_query)
+        all_events = events_res.scalars().all()
+        
+        unread_tags = set()
+        for e in all_events:
+            has_mats = any([e.photos_url, e.stream_record_url, e.article_url, e.presentations_url, e.other_materials_url])
+            if has_mats and e.id not in read_event_ids:
+                for tag in (e.tags or []):
+                    if tag in active_tags:
+                        unread_tags.add(tag)
+                        
+        await callback.message.answer(
+            "Здесь хранятся статьи, фотографии, презентации спикеров и записи трансляций всех мероприятий Креативного хаба.\n\n"
+            "Выберите интересующую тематику мероприятия, чтобы начать поиск.",
+            reply_markup=get_archive_tags_keyboard(config.DEFAULT_TAGS, unread_tags)
+        )
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("arch_tag_"))
 async def process_archive_tag_selection(callback: CallbackQuery):
     idx_str = callback.data.split("_")[2]
+    telegram_id = callback.from_user.id
     try:
         idx = int(idx_str)
         tag = config.DEFAULT_TAGS[idx]
@@ -844,25 +953,33 @@ async def process_archive_tag_selection(callback: CallbackQuery):
         tag = idx_str
     
     async with async_session() as session:
+        read_query = select(ReadPostMaterials.event_id).where(ReadPostMaterials.user_id == telegram_id)
+        read_res = await session.execute(read_query)
+        read_event_ids = set(read_res.scalars().all())
+
         query = select(Event)
         result = await session.execute(query)
         events = result.scalars().all()
         
         archived_events = []
+        unread_event_ids = set()
         for e in events:
             if tag in (e.tags or []):
-                if any([e.photos_url, e.stream_record_url, e.article_url, e.presentations_url, e.other_materials_url]):
+                has_mats = any([e.photos_url, e.stream_record_url, e.article_url, e.presentations_url, e.other_materials_url])
+                if has_mats:
                     archived_events.append(e)
-                    
+                    if e.id not in read_event_ids:
+                        unread_event_ids.add(e.id)
+                        
         if not archived_events:
             await callback.message.answer(
                 f"По теме #{tag} пока нет прошедших мероприятий с материалами.",
-                reply_markup=get_archive_events_keyboard([], idx)
+                reply_markup=get_archive_events_keyboard([], unread_event_ids)
             )
         else:
             await callback.message.answer(
                 "Вот список всех мероприятий по этой теме. Выберите нужное.",
-                reply_markup=get_archive_events_keyboard(archived_events, idx)
+                reply_markup=get_archive_events_keyboard(archived_events, unread_event_ids)
             )
     await callback.answer()
 
@@ -870,12 +987,20 @@ async def process_archive_tag_selection(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("arch_event_"))
 async def process_archive_event_detail(callback: CallbackQuery):
     event_id = int(callback.data.split("_")[2])
+    telegram_id = callback.from_user.id
     
     async with async_session() as session:
         event = await session.get(Event, event_id)
         if not event:
             await callback.answer("Мероприятие не найдено.")
             return
+
+        # Помечаем как прочитанное
+        read_check = await session.get(ReadPostMaterials, (telegram_id, event_id))
+        if not read_check:
+            new_read = ReadPostMaterials(user_id=telegram_id, event_id=event_id)
+            session.add(new_read)
+            await session.commit()
             
         title_html = f"<b>{event.title}</b>"
         if event.title_url:
@@ -897,12 +1022,20 @@ async def process_archive_event_detail(callback: CallbackQuery):
             
         materials_text = "\n".join(links) if links else "Материалы отсутствуют."
         
+        photographer_line = ""
+        if event.photographer_name:
+            if event.photographer_url:
+                photographer_line = f'\n\n💚 Фотограф: <a href="{event.photographer_url}">{event.photographer_name}</a>'
+            else:
+                photographer_line = f'\n\n💚 Фотограф: {event.photographer_name}'
+        
         text = (
             f"{title_html}\n\n"
             f"📆 <b>Дата:</b> {config.format_display_date(event.date)}\n"
             f"⏳ <b>Время:</b> {event.time}\n"
             f"📍 <b>Место:</b> {event.address}\n\n"
-            f"{materials_text}\n\n"
+            f"{materials_text}"
+            f"{photographer_line}\n\n"
             f"{tags_str}"
         )
         

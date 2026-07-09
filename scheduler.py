@@ -31,7 +31,10 @@ async def check_and_send_reminders(bot: Bot):
                 time_str = event.time.strip()
                 normalized_time = time_str.replace("—", "-").replace(" - ", "-").replace(" -", "-").replace("- ", "-")
                 start_time_part = normalized_time.split("-")[0].strip()
-                event_datetime = datetime.strptime(f"{event.date} {start_time_part}", "%d.%m.%Y %H:%M")
+                
+                # Извлекаем первую дату если это диапазон (например, 16.07.2026-17.07.2026)
+                event_date_str = event.date.split("-")[0].strip()
+                event_datetime = datetime.strptime(f"{event_date_str} {start_time_part}", "%d.%m.%Y %H:%M")
             except Exception:
                 continue
                 

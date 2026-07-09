@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, BufferedInputFile
 from aiogram.fsm.context import FSMContext
@@ -11,7 +11,7 @@ from keyboards import get_to_main_keyboard, get_event_notification_keyboard
 
 import config
 from database.db import async_session
-from database.models import User, Event, Raffle, Registration, Admin, FeedbackMessage
+from database.models import User, Event, Raffle, Registration, Admin, FeedbackMessage, PartnerEvent
 from admin_keyboards import (
     get_admin_main_keyboard,
     get_skip_keyboard,
@@ -57,7 +57,8 @@ from admin_keyboards import (
     get_admin_export_archive_tags_keyboard,
     get_admin_export_archive_events_keyboard,
     get_admin_export_back_keyboard,
-    get_feedback_navigation_keyboard
+    get_feedback_navigation_keyboard,
+    get_admin_partner_events_keyboard
 )
 
 router = Router()
@@ -100,6 +101,13 @@ class RaffleForm(StatesGroup):
     event_id = State()
 
 
+class PartnerEventForm(StatesGroup):
+    title = State()
+    date = State()
+    description = State()
+    link = State()
+
+
 class EditRaffleForm(StatesGroup):
     raffle_id = State()
     section = State()
@@ -113,6 +121,8 @@ class AdminRightsForm(StatesGroup):
 class PostMatsForm(StatesGroup):
     event_id = State()
     photos_url = State()
+    photographer_name = State()
+    photographer_url = State()
     stream_record_url = State()
     article_url = State()
     presentations_url = State()
@@ -135,6 +145,32 @@ async def is_user_admin(username: str | None, session: AsyncSession) -> bool:
     return result.scalar_one_or_none() is not None
 
 
+async def get_admin_welcome_text(session: AsyncSession) -> str:
+    total_query = select(func.count(User.telegram_id))
+    total_res = await session.execute(total_query)
+    total_users = total_res.scalar() or 0
+
+    now = datetime.now()
+    last_24h = (now - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+    last_7d = (now - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+
+    day_query = select(func.count(User.telegram_id)).where(User.created_at >= last_24h)
+    day_res = await session.execute(day_query)
+    new_users_day = day_res.scalar() or 0
+
+    week_query = select(func.count(User.telegram_id)).where(User.created_at >= last_7d)
+    week_res = await session.execute(week_query)
+    new_users_week = week_res.scalar() or 0
+
+    return (
+        "Привет, Админ!\n\n"
+        f"Уникальных пользователей бота: {total_users}\n"
+        f"Новых пользователей за сутки: {new_users_day}\n"
+        f"Новых пользователей за неделю: {new_users_week}\n\n"
+        "Что вы хотите сделать?"
+    )
+
+
 @router.callback_query(F.data == "btn_admin")
 async def process_admin_menu(callback: CallbackQuery, state: FSMContext):
     await state.clear()
@@ -143,8 +179,9 @@ async def process_admin_menu(callback: CallbackQuery, state: FSMContext):
             await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
             return
 
+        welcome_text = await get_admin_welcome_text(session)
         await callback.message.answer(
-            "Привет, Админ! Что вы хотите сделать?",
+            welcome_text,
             reply_markup=get_admin_main_keyboard()
         )
     await callback.answer()
@@ -153,10 +190,12 @@ async def process_admin_menu(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "admin_cancel")
 async def process_admin_cancel(callback: CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.answer(
-        "Привет, Админ! Что вы хотите сделать?",
-        reply_markup=get_admin_main_keyboard()
-    )
+    async with async_session() as session:
+        welcome_text = await get_admin_welcome_text(session)
+        await callback.message.answer(
+            welcome_text,
+            reply_markup=get_admin_main_keyboard()
+        )
     await callback.answer()
 
 
@@ -221,7 +260,7 @@ async def process_skip_title_url(callback: CallbackQuery, state: FSMContext):
     await state.update_data(title_url=None)
     await state.set_state(EventForm.date)
     await callback.message.answer(
-        "Вопрос 3: Отображаемая дата мероприятия (строго в формате ЧЧ.ММ.ГГГГ)",
+        "Вопрос 3: Отображаемая дата мероприятия (в формате ДД.ММ.ГГГГ или ДД.ММ.ГГГГ-ДД.ММ.ГГГГ)",
         reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_date")
     )
     await callback.answer()
@@ -232,7 +271,7 @@ async def process_add_event_title_url(message: Message, state: FSMContext):
     await state.update_data(title_url=message.text)
     await state.set_state(EventForm.date)
     await message.answer(
-        "Вопрос 3: Отображаемая дата мероприятия (строго в формате ЧЧ.ММ.ГГГГ)",
+        "Вопрос 3: Отображаемая дата мероприятия (в формате ДД.ММ.ГГГГ или ДД.ММ.ГГГГ-ДД.ММ.ГГГГ)",
         reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_date")
     )
 
@@ -247,13 +286,31 @@ async def process_back_date(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+def validate_date_format(date_str: str) -> bool:
+    date_str = date_str.strip()
+    if "-" in date_str:
+        parts = date_str.split("-")
+        if len(parts) == 2:
+            try:
+                datetime.strptime(parts[0].strip(), "%d.%m.%Y")
+                datetime.strptime(parts[1].strip(), "%d.%m.%Y")
+                return True
+            except ValueError:
+                return False
+        return False
+    else:
+        try:
+            datetime.strptime(date_str, "%d.%m.%Y")
+            return True
+        except ValueError:
+            return False
+
+
 @router.message(EventForm.date)
 async def process_add_event_date(message: Message, state: FSMContext):
-    try:
-        datetime.strptime(message.text.strip(), "%d.%m.%Y")
-    except ValueError:
+    if not validate_date_format(message.text):
         await message.answer(
-            "Неверный формат даты, попробуйте еще раз",
+            "Неверный формат даты, попробуйте еще раз. Ожидается формат ДД.ММ.ГГГГ или ДД.ММ.ГГГГ-ДД.ММ.ГГГГ",
             reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_date")
         )
         return
@@ -1835,10 +1892,10 @@ async def process_admin_pm_add_start(callback: CallbackQuery, state: FSMContext)
 @router.callback_query(F.data == "skip_pm_photos", PostMatsForm.photos_url)
 async def process_skip_pm_photos(callback: CallbackQuery, state: FSMContext):
     await state.update_data(photos_url=None)
-    await state.set_state(PostMatsForm.stream_record_url)
+    await state.set_state(PostMatsForm.photographer_name)
     await callback.message.answer(
-        "Вопрос 2: Вставьте ссылку на запись трансляции",
-        reply_markup=get_skip_keyboard("skip_pm_stream", show_back=True, back_callback="back_pm_stream")
+        "Вопрос 2: Укажите имя фотографа",
+        reply_markup=get_skip_keyboard("skip_pm_photographer_name", show_back=True, back_callback="back_pm_photographer_name")
     )
     await callback.answer()
 
@@ -1846,15 +1903,15 @@ async def process_skip_pm_photos(callback: CallbackQuery, state: FSMContext):
 @router.message(PostMatsForm.photos_url)
 async def process_add_pm_photos(message: Message, state: FSMContext):
     await state.update_data(photos_url=message.text.strip())
-    await state.set_state(PostMatsForm.stream_record_url)
+    await state.set_state(PostMatsForm.photographer_name)
     await message.answer(
-        "Вопрос 2: Вставьте ссылку на запись трансляции",
-        reply_markup=get_skip_keyboard("skip_pm_stream", show_back=True, back_callback="back_pm_stream")
+        "Вопрос 2: Укажите имя фотографа",
+        reply_markup=get_skip_keyboard("skip_pm_photographer_name", show_back=True, back_callback="back_pm_photographer_name")
     )
 
 
-@router.callback_query(F.data == "back_pm_stream", PostMatsForm.stream_record_url)
-async def process_back_pm_stream(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "back_pm_photographer_name", PostMatsForm.photographer_name)
+async def process_back_pm_photographer_name(callback: CallbackQuery, state: FSMContext):
     await state.set_state(PostMatsForm.photos_url)
     await callback.message.answer(
         "Вопрос 1: Вставьте ссылку на фотографии с мероприятия",
@@ -1863,12 +1920,91 @@ async def process_back_pm_stream(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+@router.callback_query(F.data == "skip_pm_photographer_name", PostMatsForm.photographer_name)
+async def process_skip_pm_photographer_name(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(photographer_name=None, photographer_url=None)
+    await state.set_state(PostMatsForm.stream_record_url)
+    await callback.message.answer(
+        "Вопрос 2: Вставьте ссылку на запись трансляции",
+        reply_markup=get_skip_keyboard("skip_pm_stream", show_back=True, back_callback="back_pm_stream")
+    )
+    await callback.answer()
+
+
+@router.message(PostMatsForm.photographer_name)
+async def process_add_pm_photographer_name(message: Message, state: FSMContext):
+    await state.update_data(photographer_name=message.text.strip())
+    await state.set_state(PostMatsForm.photographer_url)
+    await message.answer(
+        "Вопрос 3: Укажите ссылку, вшиваемую в имя фотографа",
+        reply_markup=get_skip_keyboard("skip_pm_photographer_url", show_back=True, back_callback="back_pm_photographer_url")
+    )
+
+
+@router.callback_query(F.data == "back_pm_photographer_url", PostMatsForm.photographer_url)
+async def process_back_pm_photographer_url(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(PostMatsForm.photographer_name)
+    await callback.message.answer(
+        "Вопрос 2: Укажите имя фотографа",
+        reply_markup=get_skip_keyboard("skip_pm_photographer_name", show_back=True, back_callback="back_pm_photographer_name")
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "skip_pm_photographer_url", PostMatsForm.photographer_url)
+async def process_skip_pm_photographer_url(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(photographer_url=None)
+    await state.set_state(PostMatsForm.stream_record_url)
+    await callback.message.answer(
+        "Вопрос 4: Вставьте ссылку на запись трансляции",
+        reply_markup=get_skip_keyboard("skip_pm_stream", show_back=True, back_callback="back_pm_stream")
+    )
+    await callback.answer()
+
+
+@router.message(PostMatsForm.photographer_url)
+async def process_add_pm_photographer_url(message: Message, state: FSMContext):
+    link = message.text.strip()
+    if not (link.startswith("http://") or link.startswith("https://")):
+        await message.answer(
+            "Некорректная ссылка, введите еще раз (должна начинаться с http:// или https://):",
+            reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_pm_photographer_url")
+        )
+        return
+    await state.update_data(photographer_url=link)
+    await state.set_state(PostMatsForm.stream_record_url)
+    await message.answer(
+        "Вопрос 4: Вставьте ссылку на запись трансляции",
+        reply_markup=get_skip_keyboard("skip_pm_stream", show_back=True, back_callback="back_pm_stream")
+    )
+
+
+@router.callback_query(F.data == "back_pm_stream", PostMatsForm.stream_record_url)
+async def process_back_pm_stream(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    if data.get("photographer_name") is None:
+        await state.set_state(PostMatsForm.photographer_name)
+        await callback.message.answer(
+            "Вопрос 2: Укажите имя фотографа",
+            reply_markup=get_skip_keyboard("skip_pm_photographer_name", show_back=True, back_callback="back_pm_photographer_name")
+        )
+    else:
+        await state.set_state(PostMatsForm.photographer_url)
+        await callback.message.answer(
+            "Вопрос 3: Укажите ссылку, вшиваемую в имя фотографа",
+            reply_markup=get_skip_keyboard("skip_pm_photographer_url", show_back=True, back_callback="back_pm_photographer_url")
+        )
+    await callback.answer()
+
+
 @router.callback_query(F.data == "skip_pm_stream", PostMatsForm.stream_record_url)
 async def process_skip_pm_stream(callback: CallbackQuery, state: FSMContext):
     await state.update_data(stream_record_url=None)
     await state.set_state(PostMatsForm.article_url)
+    data = await state.get_data()
+    q_num = 5 if data.get("photographer_name") is not None else 3
     await callback.message.answer(
-        "Вопрос 3: Вставьте ссылку на статью-конспект",
+        f"Вопрос {q_num}: Вставьте ссылку на статью-конспект",
         reply_markup=get_skip_keyboard("skip_pm_article", show_back=True, back_callback="back_pm_article")
     )
     await callback.answer()
@@ -1878,8 +2014,10 @@ async def process_skip_pm_stream(callback: CallbackQuery, state: FSMContext):
 async def process_add_pm_stream(message: Message, state: FSMContext):
     await state.update_data(stream_record_url=message.text.strip())
     await state.set_state(PostMatsForm.article_url)
+    data = await state.get_data()
+    q_num = 5 if data.get("photographer_name") is not None else 3
     await message.answer(
-        "Вопрос 3: Вставьте ссылку на статью-конспект",
+        f"Вопрос {q_num}: Вставьте ссылку на статью-конспект",
         reply_markup=get_skip_keyboard("skip_pm_article", show_back=True, back_callback="back_pm_article")
     )
 
@@ -1887,8 +2025,10 @@ async def process_add_pm_stream(message: Message, state: FSMContext):
 @router.callback_query(F.data == "back_pm_article", PostMatsForm.article_url)
 async def process_back_pm_article(callback: CallbackQuery, state: FSMContext):
     await state.set_state(PostMatsForm.stream_record_url)
+    data = await state.get_data()
+    q_num = 4 if data.get("photographer_name") is not None else 2
     await callback.message.answer(
-        "Вопрос 2: Вставьте ссылку на запись трансляции",
+        f"Вопрос {q_num}: Вставьте ссылку на запись трансляции",
         reply_markup=get_skip_keyboard("skip_pm_stream", show_back=True, back_callback="back_pm_stream")
     )
     await callback.answer()
@@ -1898,8 +2038,10 @@ async def process_back_pm_article(callback: CallbackQuery, state: FSMContext):
 async def process_skip_pm_article(callback: CallbackQuery, state: FSMContext):
     await state.update_data(article_url=None)
     await state.set_state(PostMatsForm.presentations_url)
+    data = await state.get_data()
+    q_num = 6 if data.get("photographer_name") is not None else 4
     await callback.message.answer(
-        "Вопрос 4: Вставьте ссылку на презентации спикеров",
+        f"Вопрос {q_num}: Вставьте ссылку на презентации спикеров",
         reply_markup=get_skip_keyboard("skip_pm_presentations", show_back=True, back_callback="back_pm_presentations")
     )
     await callback.answer()
@@ -1909,8 +2051,10 @@ async def process_skip_pm_article(callback: CallbackQuery, state: FSMContext):
 async def process_add_pm_article(message: Message, state: FSMContext):
     await state.update_data(article_url=message.text.strip())
     await state.set_state(PostMatsForm.presentations_url)
+    data = await state.get_data()
+    q_num = 6 if data.get("photographer_name") is not None else 4
     await message.answer(
-        "Вопрос 4: Вставьте ссылку на презентации спикеров",
+        f"Вопрос {q_num}: Вставьте ссылку на презентации спикеров",
         reply_markup=get_skip_keyboard("skip_pm_presentations", show_back=True, back_callback="back_pm_presentations")
     )
 
@@ -1918,8 +2062,10 @@ async def process_add_pm_article(message: Message, state: FSMContext):
 @router.callback_query(F.data == "back_pm_presentations", PostMatsForm.presentations_url)
 async def process_back_pm_presentations(callback: CallbackQuery, state: FSMContext):
     await state.set_state(PostMatsForm.article_url)
+    data = await state.get_data()
+    q_num = 5 if data.get("photographer_name") is not None else 3
     await callback.message.answer(
-        "Вопрос 3: Вставьте ссылку на статью-конспект",
+        f"Вопрос {q_num}: Вставьте ссылку на статью-конспект",
         reply_markup=get_skip_keyboard("skip_pm_article", show_back=True, back_callback="back_pm_article")
     )
     await callback.answer()
@@ -1929,8 +2075,10 @@ async def process_back_pm_presentations(callback: CallbackQuery, state: FSMConte
 async def process_skip_pm_presentations(callback: CallbackQuery, state: FSMContext):
     await state.update_data(presentations_url=None)
     await state.set_state(PostMatsForm.other_materials_url)
+    data = await state.get_data()
+    q_num = 7 if data.get("photographer_name") is not None else 5
     await callback.message.answer(
-        "Вопрос 5: Если хотите, вставьте ссылку на другие материалы или завершите добавление",
+        f"Вопрос {q_num}: Если хотите, вставьте ссылку на другие материалы или завершите добавление",
         reply_markup=get_skip_keyboard("finish_pm_adding", show_back=True, back_callback="back_pm_other")
     )
     await callback.answer()
@@ -1940,8 +2088,10 @@ async def process_skip_pm_presentations(callback: CallbackQuery, state: FSMConte
 async def process_add_pm_presentations(message: Message, state: FSMContext):
     await state.update_data(presentations_url=message.text.strip())
     await state.set_state(PostMatsForm.other_materials_url)
+    data = await state.get_data()
+    q_num = 7 if data.get("photographer_name") is not None else 5
     await message.answer(
-        "Вопрос 5: Если хотите, вставьте ссылку на другие материалы или завершите добавление",
+        f"Вопрос {q_num}: Если хотите, вставьте ссылку на другие материалы или завершите добавление",
         reply_markup=get_skip_keyboard("finish_pm_adding", show_back=True, back_callback="back_pm_other")
     )
 
@@ -1949,8 +2099,10 @@ async def process_add_pm_presentations(message: Message, state: FSMContext):
 @router.callback_query(F.data == "back_pm_other", PostMatsForm.other_materials_url)
 async def process_back_pm_other(callback: CallbackQuery, state: FSMContext):
     await state.set_state(PostMatsForm.presentations_url)
+    data = await state.get_data()
+    q_num = 6 if data.get("photographer_name") is not None else 4
     await callback.message.answer(
-        "Вопрос 4: Вставьте ссылку на презентации спикеров",
+        f"Вопрос {q_num}: Вставьте ссылку на презентации спикеров",
         reply_markup=get_skip_keyboard("skip_pm_presentations", show_back=True, back_callback="back_pm_presentations")
     )
     await callback.answer()
@@ -1978,6 +2130,8 @@ async def save_post_mats_to_db(message: Message, state: FSMContext):
         event = await session.get(Event, event_id)
         if event:
             event.photos_url = data.get("photos_url")
+            event.photographer_name = data.get("photographer_name")
+            event.photographer_url = data.get("photographer_url")
             event.stream_record_url = data.get("stream_record_url")
             event.article_url = data.get("article_url")
             event.presentations_url = data.get("presentations_url")
@@ -1987,7 +2141,14 @@ async def save_post_mats_to_db(message: Message, state: FSMContext):
             
             links = []
             if event.photos_url:
-                links.append(f'📸 Фотографии с мероприятия: <a href="{event.photos_url}">открыть</a>')
+                if event.photographer_name:
+                    if event.photographer_url:
+                        photo_str = f'📸 Фотографии с мероприятия: <a href="{event.photos_url}">открыть</a> (Фотограф: <a href="{event.photographer_url}">{event.photographer_name}</a>)'
+                    else:
+                        photo_str = f'📸 Фотографии с мероприятия: <a href="{event.photos_url}">открыть</a> (Фотограф: {event.photographer_name})'
+                else:
+                    photo_str = f'📸 Фотографии с мероприятия: <a href="{event.photos_url}">открыть</a>'
+                links.append(photo_str)
             if event.stream_record_url:
                 links.append(f'▶️ Запись трансляции: <a href="{event.stream_record_url}">открыть</a>')
             if event.article_url:
@@ -2326,9 +2487,15 @@ async def process_admin_export_select_active(callback: CallbackQuery):
                 reply_markup=get_admin_export_type_keyboard()
             )
         else:
+            reg_counts = {}
+            for e in active_events:
+                cnt_query = select(func.count(Registration.user_id)).where(Registration.event_id == e.id)
+                cnt_res = await session.execute(cnt_query)
+                reg_counts[e.id] = cnt_res.scalar() or 0
+                
             await callback.message.answer(
                 "Выберите активное мероприятие для выгрузки отчета:",
-                reply_markup=get_admin_export_events_keyboard(active_events)
+                reply_markup=get_admin_export_events_keyboard(active_events, reg_counts)
             )
     await callback.answer()
 
@@ -2372,9 +2539,15 @@ async def process_admin_exarchtag_select(callback: CallbackQuery):
                 reply_markup=get_admin_export_archive_tags_keyboard(config.DEFAULT_TAGS)
             )
         else:
+            reg_counts = {}
+            for e in archived_events:
+                cnt_query = select(func.count(Registration.user_id)).where(Registration.event_id == e.id)
+                cnt_res = await session.execute(cnt_query)
+                reg_counts[e.id] = cnt_res.scalar() or 0
+                
             await callback.message.answer(
                 f"Архивные мероприятия по теме «{tag}»:\nВыберите мероприятие для выгрузки отчета.",
-                reply_markup=get_admin_export_archive_events_keyboard(archived_events, tag_idx)
+                reply_markup=get_admin_export_archive_events_keyboard(archived_events, tag_idx, reg_counts)
             )
     await callback.answer()
 
@@ -2459,7 +2632,7 @@ async def process_admin_export_event(callback: CallbackQuery):
         
         await callback.message.answer_document(
             document=input_file,
-            caption=f"Список регистраций на мероприятие: <b>{event.title}</b>",
+            caption=f"<b>{event.title}</b>\nРегистраций: {len(registrations)}",
             reply_markup=get_admin_export_back_keyboard(),
             parse_mode="HTML"
         )
@@ -2565,5 +2738,178 @@ async def process_feedback_nav_next(callback: CallbackQuery, state: FSMContext):
         await state.update_data(current_feedback_index=new_idx)
         await render_feedback_message(callback.message, feedbacks[new_idx], new_idx, total)
         await callback.answer()
+
+
+# ----- Добавление партнерского мероприятия -----
+
+@router.callback_query(F.data == "admin_add_partner_event")
+async def process_admin_add_partner_event(callback: CallbackQuery, state: FSMContext):
+    async with async_session() as session:
+        if not await is_user_admin(callback.from_user.username, session):
+            await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
+            return
+        await state.set_state(PartnerEventForm.title)
+        await callback.message.answer(
+            "Вопрос 1: Название партнерского мероприятия",
+            reply_markup=get_cancel_keyboard()
+        )
+    await callback.answer()
+
+
+@router.message(PartnerEventForm.title)
+async def process_add_partner_title(message: Message, state: FSMContext):
+    await state.update_data(title=message.text.strip())
+    await state.set_state(PartnerEventForm.date)
+    await message.answer(
+        "Вопрос 2: Дата проведения (в формате ДД.ММ.ГГГГ или ДД.ММ.ГГГГ-ДД.ММ.ГГГГ)",
+        reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_partner_date")
+    )
+
+
+@router.callback_query(F.data == "back_partner_date", PartnerEventForm.date)
+async def process_back_partner_date(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(PartnerEventForm.title)
+    await callback.message.answer(
+        "Вопрос 1: Название партнерского мероприятия",
+        reply_markup=get_cancel_keyboard()
+    )
+    await callback.answer()
+
+
+@router.message(PartnerEventForm.date)
+async def process_add_partner_date(message: Message, state: FSMContext):
+    if not validate_date_format(message.text):
+        await message.answer(
+            "Неверный формат даты, попробуйте еще раз. Ожидается формат ДД.ММ.ГГГГ или ДД.ММ.ГГГГ-ДД.ММ.ГГГГ",
+            reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_partner_date")
+        )
+        return
+        
+    await state.update_data(date=message.text.strip())
+    await state.set_state(PartnerEventForm.description)
+    await message.answer(
+        "Вопрос 3: Текст описания",
+        reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_partner_description")
+    )
+
+
+@router.callback_query(F.data == "back_partner_description", PartnerEventForm.description)
+async def process_back_partner_description(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(PartnerEventForm.date)
+    await callback.message.answer(
+        "Вопрос 2: Дата проведения (в формате ДД.ММ.ГГГГ или ДД.ММ.ГГГГ-ДД.ММ.ГГГГ)",
+        reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_partner_date")
+    )
+    await callback.answer()
+
+
+@router.message(PartnerEventForm.description)
+async def process_add_partner_description(message: Message, state: FSMContext):
+    await state.update_data(description=message.html_text.strip())
+    await state.set_state(PartnerEventForm.link)
+    await message.answer(
+        "Вопрос 4: Ссылка на подробную информацию",
+        reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_partner_link")
+    )
+
+
+@router.callback_query(F.data == "back_partner_link", PartnerEventForm.link)
+async def process_back_partner_link(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(PartnerEventForm.description)
+    await callback.message.answer(
+        "Вопрос 3: Текст описания",
+        reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_partner_description")
+    )
+    await callback.answer()
+
+
+@router.message(PartnerEventForm.link)
+async def process_add_partner_link(message: Message, state: FSMContext):
+    link = message.text.strip()
+    if not (link.startswith("http://") or link.startswith("https://")):
+        await message.answer(
+            "Некорректная ссылка, введите еще раз (должна начинаться с http:// или https://):",
+            reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_partner_link")
+        )
+        return
+        
+    data = await state.get_data()
+    async with async_session() as session:
+        new_partner = PartnerEvent(
+            title=data["title"],
+            date=data["date"],
+            description=data["description"],
+            link=link
+        )
+        session.add(new_partner)
+        await session.commit()
+        
+    await state.clear()
+    await message.answer(
+        "Партнерское мероприятие успешно добавлено!",
+        reply_markup=get_admin_events_keyboard()
+    )
+
+
+# ----- Удаление партнерского мероприятия -----
+
+@router.callback_query(F.data == "admin_del_partner_event_list")
+async def process_admin_del_partner_event_list(callback: CallbackQuery):
+    async with async_session() as session:
+        if not await is_user_admin(callback.from_user.username, session):
+            await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
+            return
+
+        query = select(PartnerEvent)
+        result = await session.execute(query)
+        events = result.scalars().all()
+        
+        today = datetime.now().date()
+        active_partners = []
+        for pe in events:
+            try:
+                if "-" in pe.date:
+                    end_date_str = pe.date.split("-")[1].strip()
+                else:
+                    end_date_str = pe.date.strip()
+                end_date = datetime.strptime(end_date_str, "%d.%m.%Y").date()
+            except Exception:
+                end_date = today
+                
+            if today <= end_date:
+                active_partners.append(pe)
+
+        if not active_partners:
+            await callback.message.answer(
+                "Нет активных партнерских мероприятий для удаления.",
+                reply_markup=get_admin_events_keyboard()
+            )
+        else:
+            await callback.message.answer(
+                "Выберите партнерское мероприятие для удаления:",
+                reply_markup=get_admin_partner_events_keyboard(active_partners)
+            )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_del_pevent_"))
+async def process_admin_del_pevent(callback: CallbackQuery):
+    event_id = int(callback.data.split("_")[3])
+    async with async_session() as session:
+        if not await is_user_admin(callback.from_user.username, session):
+            await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
+            return
+
+        pevent = await session.get(PartnerEvent, event_id)
+        if pevent:
+            await session.delete(pevent)
+            await session.commit()
+            await callback.message.answer(
+                f"Партнерское мероприятие «{pevent.title}» успешно удалено.",
+                reply_markup=get_admin_events_keyboard()
+            )
+        else:
+            await callback.answer("Мероприятие партнеров не найдено.")
+    await callback.answer()
 
 

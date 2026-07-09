@@ -83,8 +83,21 @@ def get_admin_events_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="Редактировать существующее мероприятие", callback_data="admin_edit_event_list")],
         [InlineKeyboardButton(text="Редактировать архивное мероприятие", callback_data="admin_edit_archive_tags")],
         [InlineKeyboardButton(text="Удалить мероприятие", callback_data="admin_del_event_list")],
+        [InlineKeyboardButton(text="Добавить партнерское мероприятие", callback_data="admin_add_partner_event")],
+        [InlineKeyboardButton(text="Удалить партнерское мероприятие", callback_data="admin_del_partner_event_list")],
         [InlineKeyboardButton(text="Назад", callback_data="btn_admin")]
     ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_admin_partner_events_keyboard(events: list) -> InlineKeyboardMarkup:
+    """
+    Список партнерских мероприятий для удаления.
+    """
+    buttons = []
+    for e in events:
+        buttons.append([InlineKeyboardButton(text=e.title, callback_data=f"admin_del_pevent_{e.id}")])
+    buttons.append([InlineKeyboardButton(text="Назад", callback_data="admin_edit_events")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -525,11 +538,18 @@ def get_admin_export_type_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_admin_export_events_keyboard(events: list) -> InlineKeyboardMarkup:
+def get_admin_export_events_keyboard(events: list, reg_counts: dict = None) -> InlineKeyboardMarkup:
+    if reg_counts is None:
+        reg_counts = {}
     buttons = []
     for e in events:
-        buttons.append([InlineKeyboardButton(text=e.title, callback_data=f"admin_export_event_{e.id}")])
-    buttons.append([InlineKeyboardButton(text="Назад", callback_data="admin_export_registrations")])
+        cnt = reg_counts.get(e.id, 0)
+        display_title = f"({cnt}) {e.title}"
+        buttons.append([InlineKeyboardButton(text=display_title, callback_data=f"admin_export_event_{e.id}")])
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data="admin_export_registrations"),
+        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -547,11 +567,18 @@ def get_admin_export_archive_tags_keyboard(tags: list) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_admin_export_archive_events_keyboard(events: list, tag_idx: int) -> InlineKeyboardMarkup:
+def get_admin_export_archive_events_keyboard(events: list, tag_idx: int, reg_counts: dict = None) -> InlineKeyboardMarkup:
+    if reg_counts is None:
+        reg_counts = {}
     buttons = []
     for e in events:
-        buttons.append([InlineKeyboardButton(text=e.title, callback_data=f"admin_export_event_{e.id}")])
-    buttons.append([InlineKeyboardButton(text="Назад", callback_data="admin_export_select_archive")])
+        cnt = reg_counts.get(e.id, 0)
+        display_title = f"({cnt}) {e.title}"
+        buttons.append([InlineKeyboardButton(text=display_title, callback_data=f"admin_export_event_{e.id}")])
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data="admin_export_select_archive"),
+        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 

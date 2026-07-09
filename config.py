@@ -59,10 +59,21 @@ def is_super_admin(username: str | None) -> bool:
 def format_display_date(date_str: str | None) -> str:
     """
     Форматирует дату из формата ДД.ММ.ГГГГ в ДД месяц ГГГГ (например, 12 июня 2026).
+    Поддерживает диапазоны дат ДД.ММ.ГГГГ-ДД.ММ.ГГГГ.
     Если формат неверный, возвращает исходную строку.
     """
     if not date_str:
         return ""
+        
+    if "-" in date_str:
+        parts = date_str.split("-")
+        if len(parts) == 2:
+            start_fmt = format_display_date(parts[0].strip())
+            end_fmt = format_display_date(parts[1].strip())
+            if start_fmt != parts[0].strip() and end_fmt != parts[1].strip():
+                return f"{start_fmt} — {end_fmt}"
+        return date_str
+        
     parts = date_str.split('.')
     if len(parts) != 3:
         return date_str

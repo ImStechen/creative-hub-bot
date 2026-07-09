@@ -2,6 +2,7 @@ from sqlalchemy import Column, String, BigInteger, Integer, Text, ForeignKey, JS
 from sqlalchemy.orm import relationship
 from database.db import Base
 import config
+from datetime import datetime
 
 # Вспомогательные функции для дефолтных значений в БД
 def get_default_tags():
@@ -30,6 +31,9 @@ class User(Base):
     
     # JSON-хранилище для уведомлений: {"new_events": true, "event_reminders": true, ...}
     notification_preferences = Column(JSON, nullable=False, default=get_default_notifications)
+
+    # Время создания аккаунта
+    created_at = Column(String, nullable=True, default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
     # Отношение к регистрациям
     registrations = relationship("Registration", back_populates="user", cascade="all, delete-orphan")
@@ -64,6 +68,8 @@ class Event(Base):
 
     # Ссылки на пост-материалы прошедшего мероприятия
     photos_url = Column(String, nullable=True)         # Ссылка на фото
+    photographer_name = Column(String, nullable=True)  # Имя фотографа
+    photographer_url = Column(String, nullable=True)   # Ссылка на фотографа
     stream_record_url = Column(String, nullable=True)  # Ссылка на запись трансляции
     article_url = Column(String, nullable=True)        # Ссылка на конспект-статью
     presentations_url = Column(String, nullable=True)  # Ссылка на презентации
@@ -152,6 +158,29 @@ class FeedbackMessage(Base):
 
     def __repr__(self):
         return f"<FeedbackMessage id={self.id} user_id={self.user_id} text={self.text[:20]}...>"
+
+
+class ReadPostMaterials(Base):
+    __tablename__ = 'read_post_materials'
+
+    user_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete="CASCADE"), primary_key=True)
+    event_id = Column(Integer, ForeignKey('events.id', ondelete="CASCADE"), primary_key=True)
+
+    def __repr__(self):
+        return f"<ReadPostMaterials user_id={self.user_id} event_id={self.event_id}>"
+
+
+class PartnerEvent(Base):
+    __tablename__ = 'partner_events'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String, nullable=False)
+    date = Column(String, nullable=False) # формат ДД.ММ.ГГГГ или ДД.ММ.ГГГГ-ДД.ММ.ГГГГ
+    description = Column(Text, nullable=False)
+    link = Column(String, nullable=False)
+
+    def __repr__(self):
+        return f"<PartnerEvent id={self.id} title={self.title[:20]}...>"
 
 
 

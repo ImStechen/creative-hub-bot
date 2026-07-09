@@ -33,7 +33,7 @@ def get_cancel_feedback_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def get_events_list_keyboard(events: list) -> InlineKeyboardMarkup:
+def get_events_list_keyboard(events: list, partners_count: int = 0) -> InlineKeyboardMarkup:
     """
     Генерирует инлайн-кнопки для списка доступных мероприятий.
     """
@@ -41,6 +41,7 @@ def get_events_list_keyboard(events: list) -> InlineKeyboardMarkup:
     for event in events:
         buttons.append([InlineKeyboardButton(text=event.title, callback_data=f"show_event_{event.id}")])
     
+    buttons.append([InlineKeyboardButton(text=f"Мероприятия партнеров ({partners_count})", callback_data="btn_partners_events")])
     buttons.append([InlineKeyboardButton(text="Назад", callback_data="back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -58,7 +59,10 @@ def get_event_detail_keyboard(event_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="Пока думаю", callback_data=f"reg_status_{event_id}_думаю"),
             InlineKeyboardButton(text="Точно не пойду", callback_data=f"reg_status_{event_id}_не пойду")
         ],
-        [InlineKeyboardButton(text="Назад", callback_data="btn_events_info")]
+        [
+            InlineKeyboardButton(text="Назад", callback_data="btn_events_info"),
+            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -152,14 +156,26 @@ def get_after_save_tags_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def get_archive_tags_keyboard(tags: list) -> InlineKeyboardMarkup:
+def get_to_main_back_keyboard() -> InlineKeyboardMarkup:
+    """
+    Клавиатура с кнопкой '← На главную'.
+    """
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="← На главную", callback_data="back_to_main")]
+    ])
+
+
+def get_archive_tags_keyboard(tags: list, unread_tags: set = None) -> InlineKeyboardMarkup:
     """
     Генерирует клавиатуру со списком тегов для архива пост-материалов.
     """
+    if unread_tags is None:
+        unread_tags = set()
     buttons = []
     current_row = []
     for idx, tag in enumerate(tags):
-        current_row.append(InlineKeyboardButton(text=tag, callback_data=f"arch_tag_{idx}"))
+        display_name = f"🔥 {tag}" if tag in unread_tags else tag
+        current_row.append(InlineKeyboardButton(text=display_name, callback_data=f"arch_tag_{idx}"))
         if len(current_row) == 2:
             buttons.append(current_row)
             current_row = []
@@ -170,13 +186,16 @@ def get_archive_tags_keyboard(tags: list) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_archive_events_keyboard(events: list, tag: str) -> InlineKeyboardMarkup:
+def get_archive_events_keyboard(events: list, unread_event_ids: set = None) -> InlineKeyboardMarkup:
     """
     Генерирует клавиатуру списка мероприятий в архиве для конкретного тега.
     """
+    if unread_event_ids is None:
+        unread_event_ids = set()
     buttons = []
     for event in events:
-        buttons.append([InlineKeyboardButton(text=event.title, callback_data=f"arch_event_{event.id}")])
+        display_title = f"🔥 {event.title}" if event.id in unread_event_ids else event.title
+        buttons.append([InlineKeyboardButton(text=display_title, callback_data=f"arch_event_{event.id}")])
         
     buttons.append([InlineKeyboardButton(text="Назад", callback_data="btn_archive")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -187,8 +206,10 @@ def get_archive_detail_keyboard(tag_idx: int) -> InlineKeyboardMarkup:
     Генерирует кнопки навигации из карточки пост-материалов мероприятия.
     """
     buttons = [
-        [InlineKeyboardButton(text="Назад", callback_data=f"arch_tag_{tag_idx}")],
-        [InlineKeyboardButton(text="На главную", callback_data="back_to_main")]
+        [
+            InlineKeyboardButton(text="Назад", callback_data=f"arch_tag_{tag_idx}"),
+            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
