@@ -1,0 +1,6 @@
+creative_hub.db
+test_creative_hub.db
+__pycache__/
+venv/
+.venv/
+*.log
