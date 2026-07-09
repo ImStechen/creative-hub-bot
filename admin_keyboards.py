@@ -85,7 +85,10 @@ def get_admin_events_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="Удалить мероприятие", callback_data="admin_del_event_list")],
         [InlineKeyboardButton(text="Добавить партнерское мероприятие", callback_data="admin_add_partner_event")],
         [InlineKeyboardButton(text="Удалить партнерское мероприятие", callback_data="admin_del_partner_event_list")],
-        [InlineKeyboardButton(text="Назад", callback_data="btn_admin")]
+        [
+            InlineKeyboardButton(text="Назад", callback_data="btn_admin"),
+            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -97,7 +100,10 @@ def get_admin_partner_events_keyboard(events: list) -> InlineKeyboardMarkup:
     buttons = []
     for e in events:
         buttons.append([InlineKeyboardButton(text=e.title, callback_data=f"admin_del_pevent_{e.id}")])
-    buttons.append([InlineKeyboardButton(text="Назад", callback_data="admin_edit_events")])
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data="admin_edit_events"),
+        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -108,7 +114,10 @@ def get_event_select_edit_keyboard(events: list) -> InlineKeyboardMarkup:
     buttons = []
     for e in events:
         buttons.append([InlineKeyboardButton(text=e.title, callback_data=f"admin_select_edit_event_{e.id}")])
-    buttons.append([InlineKeyboardButton(text="Назад", callback_data="admin_edit_events")])
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data="admin_edit_events"),
+        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -173,8 +182,10 @@ def get_after_deleted_event_keyboard() -> InlineKeyboardMarkup:
     Кнопки после удаления мероприятия.
     """
     buttons = [
-        [InlineKeyboardButton(text="На главную", callback_data="back_to_main")],
-        [InlineKeyboardButton(text="В Администрирование", callback_data="btn_admin")]
+        [
+            InlineKeyboardButton(text="В Администрирование", callback_data="btn_admin"),
+            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -186,7 +197,10 @@ def get_admin_tags_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="Добавить новый тег", callback_data="admin_add_tag")],
         [InlineKeyboardButton(text="Удалить тег", callback_data="admin_del_tag_list")],
-        [InlineKeyboardButton(text="Назад", callback_data="btn_admin")]
+        [
+            InlineKeyboardButton(text="Назад", callback_data="btn_admin"),
+            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -197,8 +211,10 @@ def get_after_tag_created_keyboard() -> InlineKeyboardMarkup:
     """
     buttons = [
         [InlineKeyboardButton(text="Добавить еще тег", callback_data="admin_add_tag")],
-        [InlineKeyboardButton(text="На главную", callback_data="back_to_main")],
-        [InlineKeyboardButton(text="В Администрирование", callback_data="btn_admin")]
+        [
+            InlineKeyboardButton(text="В Администрирование", callback_data="btn_admin"),
+            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -210,7 +226,10 @@ def get_tag_delete_keyboard(tags: list) -> InlineKeyboardMarkup:
     buttons = []
     for i, t in enumerate(tags):
         buttons.append([InlineKeyboardButton(text=t, callback_data=f"admin_confirm_del_tag_{i}")])
-    buttons.append([InlineKeyboardButton(text="Назад", callback_data="admin_edit_tags")])
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data="admin_edit_tags"),
+        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -219,8 +238,10 @@ def get_after_tag_deleted_keyboard() -> InlineKeyboardMarkup:
     Кнопки после удаления тега.
     """
     buttons = [
-        [InlineKeyboardButton(text="На главную", callback_data="back_to_main")],
-        [InlineKeyboardButton(text="В Администрирование", callback_data="btn_admin")]
+        [
+            InlineKeyboardButton(text="В Администрирование", callback_data="btn_admin"),
+            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -233,7 +254,10 @@ def get_admin_raffles_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="Добавить новый розыгрыш", callback_data="admin_add_raffle")],
         [InlineKeyboardButton(text="Редактировать существующий розыгрыш", callback_data="admin_edit_raffle_list")],
         [InlineKeyboardButton(text="Удалить розыгрыш", callback_data="admin_del_raffle_list")],
-        [InlineKeyboardButton(text="Назад", callback_data="btn_admin")]
+        [
+            InlineKeyboardButton(text="Назад", callback_data="btn_admin"),
+            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -245,7 +269,10 @@ def get_raffle_select_edit_keyboard(raffles: list) -> InlineKeyboardMarkup:
     buttons = []
     for r in raffles:
         buttons.append([InlineKeyboardButton(text=r.title, callback_data=f"admin_select_edit_raffle_{r.id}")])
-    buttons.append([InlineKeyboardButton(text="Назад", callback_data="admin_edit_raffles")])
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data="admin_edit_raffles"),
+        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -337,8 +364,10 @@ def get_after_raffle_save_keyboard() -> InlineKeyboardMarkup:
     Кнопки завершения добавления розыгрыша.
     """
     buttons = [
-        [InlineKeyboardButton(text="На главную", callback_data="back_to_main")],
-        [InlineKeyboardButton(text="В Администрирование", callback_data="btn_admin")]
+        [
+            InlineKeyboardButton(text="В Администрирование", callback_data="btn_admin"),
+            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -350,7 +379,10 @@ def get_admin_rights_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="Добавить админа", callback_data="admin_add_rights")],
         [InlineKeyboardButton(text="Удалить админа", callback_data="admin_del_rights_list")],
-        [InlineKeyboardButton(text="Назад", callback_data="btn_admin")]
+        [
+            InlineKeyboardButton(text="Назад", callback_data="btn_admin"),
+            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -406,7 +438,10 @@ def get_after_event_created_keyboard() -> InlineKeyboardMarkup:
     Кнопки после успешного добавления мероприятия.
     """
     buttons = [
-        [InlineKeyboardButton(text="Назад", callback_data="admin_edit_events")],
+        [
+            InlineKeyboardButton(text="Назад", callback_data="admin_edit_events"),
+            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ],
         [InlineKeyboardButton(text="В Администрирование", callback_data="btn_admin")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -431,7 +466,10 @@ def get_admin_post_mats_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="Добавить пост-материалы", callback_data="admin_add_post_mats")],
         [InlineKeyboardButton(text="Удалить пост-материалы", callback_data="admin_del_post_mats")],
-        [InlineKeyboardButton(text="Назад", callback_data="btn_admin")]
+        [
+            InlineKeyboardButton(text="Назад", callback_data="btn_admin"),
+            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -444,7 +482,10 @@ def get_admin_post_mats_event_select_keyboard(events: list, is_delete: bool = Fa
     prefix = "admin_pm_del_" if is_delete else "admin_pm_add_"
     for e in events:
         buttons.append([InlineKeyboardButton(text=e.title, callback_data=f"{prefix}{e.id}")])
-    buttons.append([InlineKeyboardButton(text="Назад", callback_data="admin_edit_post_mats")])
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data="admin_edit_post_mats"),
+        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -453,8 +494,10 @@ def get_after_post_mats_saved_keyboard() -> InlineKeyboardMarkup:
     Кнопки после сохранения пост-материалов.
     """
     buttons = [
-        [InlineKeyboardButton(text="На главную", callback_data="back_to_main")],
-        [InlineKeyboardButton(text="В Администрирование", callback_data="btn_admin")]
+        [
+            InlineKeyboardButton(text="В Администрирование", callback_data="btn_admin"),
+            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -485,7 +528,10 @@ def get_post_mats_tags_keyboard(tags: list, is_delete: bool = False) -> InlineKe
     if current_row:
         buttons.append(current_row)
         
-    buttons.append([InlineKeyboardButton(text="Назад", callback_data="admin_edit_post_mats")])
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data="admin_edit_post_mats"),
+        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -514,7 +560,10 @@ def get_admin_archive_tags_keyboard(tags: list) -> InlineKeyboardMarkup:
             current_row = []
     if current_row:
         buttons.append(current_row)
-    buttons.append([InlineKeyboardButton(text="Назад", callback_data="admin_edit_events")])
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data="admin_edit_events"),
+        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -525,7 +574,10 @@ def get_admin_archive_events_keyboard(events: list, tag_idx: int) -> InlineKeybo
     buttons = []
     for e in events:
         buttons.append([InlineKeyboardButton(text=e.title, callback_data=f"admin_select_edit_event_{e.id}")])
-    buttons.append([InlineKeyboardButton(text="Назад", callback_data="admin_edit_archive_tags")])
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data="admin_edit_archive_tags"),
+        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -533,7 +585,10 @@ def get_admin_export_type_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="Активные мероприятия", callback_data="admin_export_select_active")],
         [InlineKeyboardButton(text="Архивные мероприятия", callback_data="admin_export_select_archive")],
-        [InlineKeyboardButton(text="Назад", callback_data="btn_admin")]
+        [
+            InlineKeyboardButton(text="Назад", callback_data="btn_admin"),
+            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -563,7 +618,10 @@ def get_admin_export_archive_tags_keyboard(tags: list) -> InlineKeyboardMarkup:
             current_row = []
     if current_row:
         buttons.append(current_row)
-    buttons.append([InlineKeyboardButton(text="Назад", callback_data="admin_export_registrations")])
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data="admin_export_registrations"),
+        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -584,7 +642,10 @@ def get_admin_export_archive_events_keyboard(events: list, tag_idx: int, reg_cou
 
 def get_admin_export_back_keyboard() -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text="Назад", callback_data="admin_export_registrations")]
+        [
+            InlineKeyboardButton(text="Назад", callback_data="admin_export_registrations"),
+            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
