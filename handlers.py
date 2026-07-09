@@ -25,7 +25,8 @@ from keyboards import (
     get_registration_keyboard,
     get_agreement_keyboard,
     get_cancel_feedback_keyboard,
-    get_to_main_back_keyboard
+    get_to_main_back_keyboard,
+    get_partners_events_keyboard
 )
 
 router = Router()
@@ -573,7 +574,7 @@ async def process_partners_events(callback: CallbackQuery):
         if not actual_partners:
             await callback.message.answer(
                 "Мероприятия партнёров Хаба:\n\nНа данный момент нет актуальных мероприятий партнеров.",
-                reply_markup=get_to_main_back_keyboard()
+                reply_markup=get_partners_events_keyboard()
             )
             await callback.answer()
             return
@@ -583,11 +584,11 @@ async def process_partners_events(callback: CallbackQuery):
         
         lines = ["Мероприятия партнёров Хаба:"]
         for pe in actual_partners:
-            display_date = config.format_display_date(pe.date)
+            display_date = config.format_partner_date(pe.date)
             item_text = (
                 f"\n"
-                f"{display_date} {pe.title}\n"
-                f"{pe.description}\n"
+                f"▪️ <b>{display_date} | {pe.title}</b>\n\n"
+                f"{pe.description}\n\n"
                 f"<b><a href=\"{pe.link}\">→ Подробности</a></b>\n"
             )
             lines.append(item_text)
@@ -596,7 +597,7 @@ async def process_partners_events(callback: CallbackQuery):
         
         await callback.message.answer(
             text,
-            reply_markup=get_to_main_back_keyboard(),
+            reply_markup=get_partners_events_keyboard(),
             parse_mode="HTML",
             disable_web_page_preview=True
         )

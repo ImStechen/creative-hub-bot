@@ -105,3 +105,50 @@ def format_display_date(date_str: str | None) -> str:
         
     return f"{day_num} {month_name} {year}"
 
+
+def format_partner_date(date_str: str) -> str:
+    """
+    Форматирует дату для партнерских мероприятий:
+    - Двойную дату пишет через - и без пробелов.
+    - Если год начала и окончания совпадают, пишем только год конца ивента.
+    - Пример: 6 июля-17 июля 2026
+    """
+    if not date_str:
+        return ""
+        
+    date_str = date_str.strip()
+    if "-" in date_str:
+        parts = date_str.split("-")
+        if len(parts) == 2:
+            d1_parts = parts[0].strip().split('.')
+            d2_parts = parts[1].strip().split('.')
+            if len(d1_parts) == 3 and len(d2_parts) == 3:
+                day1, month1_num, year1 = d1_parts
+                day2, month2_num, year2 = d2_parts
+                
+                months = {
+                    "01": "января", "02": "февраля", "03": "марта", "04": "апреля",
+                    "05": "мая", "06": "июня", "07": "июля", "08": "августа",
+                    "09": "сентября", "10": "октября", "11": "ноября", "12": "декабря"
+                }
+                
+                m1 = months.get(month1_num, month1_num)
+                m2 = months.get(month2_num, month2_num)
+                
+                try:
+                    d1_clean = str(int(day1))
+                except ValueError:
+                    d1_clean = day1
+                try:
+                    d2_clean = str(int(day2))
+                except ValueError:
+                    d2_clean = day2
+                
+                if year1 == year2:
+                    return f"{d1_clean} {m1}-{d2_clean} {m2} {year2}"
+                else:
+                    return f"{d1_clean} {m1} {year1}-{d2_clean} {m2} {year2}"
+                    
+    # Если не диапазон или не удалось распарсить
+    return format_display_date(date_str)
+

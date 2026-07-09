@@ -109,7 +109,7 @@ from keyboards import (
     get_main_menu_keyboard, get_events_list_keyboard, get_event_detail_keyboard,
     get_after_registration_keyboard, get_preferences_menu_keyboard, get_checkbox_keyboard,
     get_after_save_tags_keyboard, get_archive_tags_keyboard, get_archive_events_keyboard,
-    get_archive_detail_keyboard, get_raffle_detail_keyboard
+    get_archive_detail_keyboard, get_raffle_detail_keyboard, get_partners_events_keyboard
 )
 from admin_keyboards import (
     get_admin_main_keyboard, get_admin_tags_keyboard,
@@ -1031,6 +1031,8 @@ async def test_suite():
         # 20.1 Check date range formatting
         assert config.format_display_date("16.07.2026-17.07.2026") == "16 июля 2026 — 17 июля 2026"
         assert config.format_display_date("12.06.2026") == "12 июня 2026"
+        assert config.format_partner_date("16.07.2026-17.07.2026") == "16 июля-17 июля 2026"
+        assert config.format_partner_date("16.07.2026-17.07.2027") == "16 июля 2026-17 июля 2027"
         
         # 20.2 Create a PartnerEvent via FSM
         p_state = DummyState()
@@ -1083,13 +1085,14 @@ async def test_suite():
         
         comp_text = comp_msg.sent_messages[-1][0]
         assert "Мероприятия партнёров Хаба:" in comp_text
-        assert "16 июля 2026 — 17 июля 2026 Партнерский Ивент" in comp_text
+        assert "▪️ <b>16 июля-17 июля 2026 | Партнерский Ивент</b>" in comp_text
         assert "Описание партнера" in comp_text
         assert "→ Подробности" in comp_text
         
         comp_kb = comp_msg.sent_messages[-1][1]
         comp_btn_texts = [btn.text for row in comp_kb.inline_keyboard for btn in row]
-        assert "← На главную" in comp_btn_texts
+        assert "Назад" in comp_btn_texts
+        assert "← К списку" in comp_btn_texts
         
         # 20.5 Test deletion flow
         del_list_msg = DummyMessage(999, "ASaavedraA")
@@ -1143,6 +1146,20 @@ async def test_suite():
         assert len(last_row_ex_arch) == 2
         assert last_row_ex_arch[0].text == "Назад" and last_row_ex_arch[0].callback_data == "admin_export_select_archive"
         assert last_row_ex_arch[1].text == "← К списку" and last_row_ex_arch[1].callback_data == "back_to_main"
+        
+        # 21.5 Partners events list keyboard
+        kb_partners = get_partners_events_keyboard()
+        last_row_partners = kb_partners.inline_keyboard[-1]
+        assert len(last_row_partners) == 2
+        assert last_row_partners[0].text == "Назад" and last_row_partners[0].callback_data == "btn_events_info"
+        assert last_row_partners[1].text == "← К списку" and last_row_partners[1].callback_data == "back_to_main"
+        
+        # 21.6 Admin events menu keyboard
+        kb_ad_ev = get_admin_events_keyboard()
+        last_row_ad_ev = kb_ad_ev.inline_keyboard[-1]
+        assert len(last_row_ad_ev) == 2
+        assert last_row_ad_ev[0].text == "Назад" and last_row_ad_ev[0].callback_data == "btn_admin"
+        assert last_row_ad_ev[1].text == "← К списку" and last_row_ad_ev[1].callback_data == "back_to_main"
         
         print("Horizontal navigation buttons test PASSED!")
 

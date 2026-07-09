@@ -165,6 +165,19 @@ def get_to_main_back_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def get_partners_events_keyboard() -> InlineKeyboardMarkup:
+    """
+    Клавиатура для списка партнерских мероприятий:
+    [Назад] | [← К списку]
+    """
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="Назад", callback_data="btn_events_info"),
+            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ]
+    ])
+
+
 def get_archive_tags_keyboard(tags: list, unread_tags: set = None) -> InlineKeyboardMarkup:
     """
     Генерирует клавиатуру со списком тегов для архива пост-материалов.
