@@ -42,7 +42,9 @@ DEFAULT_NOTIFICATION_TRIGGERS = [
 ]
 
 # Строка подключения к базе данных SQLite (асинхронная)
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///creative_hub.db")
+DATA_DIR = os.getenv('DATA_DIR', '.')
+os.makedirs(DATA_DIR, exist_ok=True)
+DATABASE_URL = f"sqlite+aiosqlite:///{os.path.join(DATA_DIR, 'creative_hub.db')}"
 
 
 def is_super_admin(username: str | None) -> bool:
