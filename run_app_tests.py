@@ -931,13 +931,13 @@ async def test_suite():
         archive_cb = DummyCallbackQuery("btn_archive", 123, "john_doe", archive_msg)
         await handlers.process_archive_menu(archive_cb, DummyState())
         
-        # Check that markup has "🔥 Наука" (enabled, unread)
-        # but does NOT have "🔥 Digital_Дизайн" (disabled, unread)
+        # Check that markup has "🔔 Наука" (enabled, unread)
+        # but does NOT have "🔔 Digital_Дизайн" (disabled, unread)
         tags_kb = archive_msg.sent_messages[-1][1]
         buttons = [btn.text for row in tags_kb.inline_keyboard for btn in row]
-        assert "🔥 Наука" in buttons
+        assert "🔔 Наука" in buttons
         assert "Digital_Дизайн" in buttons
-        assert "🔥 Digital_Дизайн" not in buttons
+        assert "🔔 Digital_Дизайн" not in buttons
         
         # Go to tag selection list
         tag_select_msg = DummyMessage(123, "john_doe")
@@ -946,10 +946,10 @@ async def test_suite():
         tag_cb = DummyCallbackQuery(f"arch_tag_{science_idx}", 123, "john_doe", tag_select_msg)
         await handlers.process_archive_tag_selection(tag_cb)
         
-        # Check event list markup has "🔥 Научный Семинар"
+        # Check event list markup has "🔔 Научный Семинар"
         events_kb = tag_select_msg.sent_messages[-1][1]
         event_buttons = [btn.text for row in events_kb.inline_keyboard for btn in row]
-        assert "🔥 Научный Семинар" in event_buttons
+        assert "🔔 Научный Семинар" in event_buttons
         
         # Transition to event detail (viewing it)
         detail_msg = DummyMessage(123, "john_doe")
@@ -968,7 +968,7 @@ async def test_suite():
         event_buttons_2 = [btn.text for row in events_kb_2.inline_keyboard for btn in row]
         # Fire emoji should be gone!
         assert "Научный Семинар" in event_buttons_2
-        assert "🔥 Научный Семинар" not in event_buttons_2
+        assert "🔔 Научный Семинар" not in event_buttons_2
         
         # Re-check categories menu
         archive_msg_2 = DummyMessage(123, "john_doe")
@@ -977,7 +977,7 @@ async def test_suite():
         buttons_2 = [btn.text for row in tags_kb_2.inline_keyboard for btn in row]
         # Fire emoji should be gone from Наука!
         assert "Наука" in buttons_2
-        assert "🔥 Наука" not in buttons_2
+        assert "🔔 Наука" not in buttons_2
         
         print("Preference tags prompt & unread post-materials indicators test PASSED!")
 
