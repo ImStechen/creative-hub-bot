@@ -890,8 +890,11 @@ async def test_suite():
         bot_sent = reply_msg.bot.sent_messages
         assert len(bot_sent) == 1
         assert bot_sent[0][0] == 102 # chat_id
-        assert "Новый ответ от поддержки" in bot_sent[0][1]
+        assert "Новый ответ от поддержки бота <b>Эксклюзивно: Креативный хаб НИУ ВШЭ</b>:\n\n" in bot_sent[0][1]
         assert "Ответ поддержки на обращение" in bot_sent[0][1]
+        # Check that back button exists for user
+        assert bot_sent[0][2] is not None
+        assert bot_sent[0][2].inline_keyboard[0][0].text == "Назад"
         assert view_state.state is None # state cleared
         
         print("Feedback flow & admin navigator test PASSED!")

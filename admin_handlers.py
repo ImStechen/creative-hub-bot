@@ -2746,18 +2746,18 @@ async def process_admin_reply_feedback(callback: CallbackQuery, state: FSMContex
     user_id = int(callback.data.split("_")[3])
     
     async with async_session() as session:
-        # Import User here to avoid circular dependencies if any
-        from database.models import User
-        user = await session.get(User, user_id)
-        if user:
-            name = user.full_name or "Пользователь"
+        # First try to find the name in the feedback messages to get the exact sender name
+        query = select(FeedbackMessage).where(FeedbackMessage.user_id == user_id).order_by(FeedbackMessage.created_at.desc()).limit(1)
+        res = await session.execute(query)
+        fm = res.scalar_one_or_none()
+        if fm:
+            name = fm.full_name
             user_link = f'<a href="tg://user?id={user_id}">{name}</a>'
         else:
-            query = select(FeedbackMessage).where(FeedbackMessage.user_id == user_id).limit(1)
-            res = await session.execute(query)
-            fm = res.scalar_one_or_none()
-            if fm:
-                name = fm.full_name
+            from database.models import User
+            user = await session.get(User, user_id)
+            if user:
+                name = user.full_name or "Пользователь"
                 user_link = f'<a href="tg://user?id={user_id}">{name}</a>'
             else:
                 user_link = f'<a href="tg://user?id={user_id}">Пользователь {user_id}</a>'
@@ -2786,14 +2786,21 @@ async def process_admin_reply_message(message: Message, state: FSMContext):
     
     bot = message.bot
     user_notification = (
-        "Новый ответ от поддержки бота Эксклюзивно: Креативный хаб НИУ ВШЭ\n\n"
+        "Новый ответ от поддержки бота <b>Эксклюзивно: Креативный хаб НИУ ВШЭ</b>:\n\n"
         f"{reply_text}"
     )
+    
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    user_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Назад", callback_data="back_to_main")]
+    ])
     
     try:
         await bot.send_message(
             chat_id=target_user_id,
-            text=user_notification
+            text=user_notification,
+            parse_mode="HTML",
+            reply_markup=user_kb
         )
         await message.answer(
             f"Ответ успешно отправлен пользователю {target_link}.",
