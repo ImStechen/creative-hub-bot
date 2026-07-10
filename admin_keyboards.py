@@ -17,16 +17,19 @@ def get_admin_main_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_feedback_navigation_keyboard() -> InlineKeyboardMarkup:
+def get_feedback_navigation_keyboard(user_id: int) -> InlineKeyboardMarkup:
     """
-    Генерирует инлайн-кнопки перелистывания обратной связи по кругу.
+    Генерирует инлайн-кнопки перелистывания обратной связи по кругу с возможностью ответа.
     """
     buttons = [
         [
             InlineKeyboardButton(text="Назад", callback_data="feedback_nav_prev"),
             InlineKeyboardButton(text="Дальше", callback_data="feedback_nav_next")
         ],
-        [InlineKeyboardButton(text="В Администрирование", callback_data="btn_admin")]
+        [
+            InlineKeyboardButton(text="Ответить", callback_data=f"admin_reply_feedback_{user_id}"),
+            InlineKeyboardButton(text="В Администрирование", callback_data="btn_admin")
+        ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

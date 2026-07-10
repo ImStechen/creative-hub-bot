@@ -874,6 +874,26 @@ async def test_suite():
         assert data.get("current_feedback_index") == 1
         assert "Фидбек 2" in admin_msg.sent_messages[-1][0]
         
+        # Test admin reply to feedback flow
+        reply_cb = DummyCallbackQuery("admin_reply_feedback_102", 999, "ASaavedraA", admin_msg)
+        await admin_handlers.process_admin_reply_feedback(reply_cb, view_state)
+        assert view_state.state == admin_handlers.AdminFeedbackStates.waiting_for_reply
+        
+        reply_data = await view_state.get_data()
+        assert reply_data.get("reply_target_user_id") == 102
+        
+        reply_msg = DummyMessage(999, "ASaavedraA", "Ответ поддержки на обращение")
+        reply_msg.bot = DummyBot()
+        await admin_handlers.process_admin_reply_message(reply_msg, view_state)
+        
+        # Check that user notification was sent
+        bot_sent = reply_msg.bot.sent_messages
+        assert len(bot_sent) == 1
+        assert bot_sent[0][0] == 102 # chat_id
+        assert "Новый ответ от поддержки" in bot_sent[0][1]
+        assert "Ответ поддержки на обращение" in bot_sent[0][1]
+        assert view_state.state is None # state cleared
+        
         print("Feedback flow & admin navigator test PASSED!")
 
         # ----------------------------------------------------

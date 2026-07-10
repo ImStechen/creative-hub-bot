@@ -1176,7 +1176,10 @@ async def process_feedback_message(message: Message, state: FSMContext):
 
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     back_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Назад", callback_data="back_to_main")]
+        [
+            InlineKeyboardButton(text="Назад", callback_data="back_to_main"),
+            InlineKeyboardButton(text="Ответить", callback_data=f"admin_reply_feedback_{telegram_id}")
+        ]
     ])
 
     async with async_session() as session:

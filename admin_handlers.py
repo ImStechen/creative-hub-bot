@@ -2646,6 +2646,7 @@ async def process_admin_export_event(callback: CallbackQuery):
 
 class AdminFeedbackStates(StatesGroup):
     viewing = State()
+    waiting_for_reply = State()
 
 
 async def render_feedback_message(message: Message, feedback: FeedbackMessage, index: int, total: int):
@@ -2659,7 +2660,7 @@ async def render_feedback_message(message: Message, feedback: FeedbackMessage, i
     )
     await message.edit_text(
         text,
-        reply_markup=get_feedback_navigation_keyboard(),
+        reply_markup=get_feedback_navigation_keyboard(feedback.user_id),
         parse_mode="HTML",
         disable_web_page_preview=True
     )
@@ -2738,6 +2739,75 @@ async def process_feedback_nav_next(callback: CallbackQuery, state: FSMContext):
         await state.update_data(current_feedback_index=new_idx)
         await render_feedback_message(callback.message, feedbacks[new_idx], new_idx, total)
         await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_reply_feedback_"))
+async def process_admin_reply_feedback(callback: CallbackQuery, state: FSMContext):
+    user_id = int(callback.data.split("_")[3])
+    
+    async with async_session() as session:
+        # Import User here to avoid circular dependencies if any
+        from database.models import User
+        user = await session.get(User, user_id)
+        if user:
+            name = user.full_name or "Пользователь"
+            user_link = f'<a href="tg://user?id={user_id}">{name}</a>'
+        else:
+            query = select(FeedbackMessage).where(FeedbackMessage.user_id == user_id).limit(1)
+            res = await session.execute(query)
+            fm = res.scalar_one_or_none()
+            if fm:
+                name = fm.full_name
+                user_link = f'<a href="tg://user?id={user_id}">{name}</a>'
+            else:
+                user_link = f'<a href="tg://user?id={user_id}">Пользователь {user_id}</a>'
+                
+    await state.set_state(AdminFeedbackStates.waiting_for_reply)
+    await state.update_data(reply_target_user_id=user_id, reply_target_link=user_link)
+    
+    await callback.message.answer(
+        f"введите текст ответа на сообщение пользователя {user_link}",
+        reply_markup=get_cancel_keyboard(),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@router.message(AdminFeedbackStates.waiting_for_reply)
+async def process_admin_reply_message(message: Message, state: FSMContext):
+    reply_text = message.text
+    if not reply_text:
+        await message.answer("Пожалуйста, введите текстовый ответ:")
+        return
+        
+    data = await state.get_data()
+    target_user_id = data.get("reply_target_user_id")
+    target_link = data.get("reply_target_link")
+    
+    bot = message.bot
+    user_notification = (
+        "Новый ответ от поддержки бота Эксклюзивно: Креативный хаб НИУ ВШЭ\n\n"
+        f"{reply_text}"
+    )
+    
+    try:
+        await bot.send_message(
+            chat_id=target_user_id,
+            text=user_notification
+        )
+        await message.answer(
+            f"Ответ успешно отправлен пользователю {target_link}.",
+            parse_mode="HTML",
+            reply_markup=get_admin_main_keyboard()
+        )
+    except Exception as e:
+        await message.answer(
+            f"Не удалось отправить сообщение пользователю {target_link}. Ошибка: {e}",
+            parse_mode="HTML",
+            reply_markup=get_admin_main_keyboard()
+        )
+        
+    await state.clear()
 
 
 # ----- Добавление партнерского мероприятия -----
