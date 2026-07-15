@@ -622,7 +622,7 @@ async def process_show_event(callback: CallbackQuery):
         
         links_list = []
         if event.reg_url:
-            links_list.append(f'→ <a href="{event.reg_url}">Регистрация на сайте</a>')
+            links_list.append(f'→ <a href="{event.reg_url}">Регистрация на сайте</a>\nИли в телеграм-боте 👇')
         if event.stream_url:
             links_list.append(f'→ <a href="{event.stream_url}">Трансляция</a>')
         links_str = "\n\n" + "\n".join(links_list) if links_list else ""

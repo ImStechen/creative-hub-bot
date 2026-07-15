@@ -760,7 +760,7 @@ async def save_event_to_db(message: Message, state: FSMContext):
         
         links_list = []
         if event.reg_url:
-            links_list.append(f'→ <a href="{event.reg_url}">Регистрация на сайте</a>')
+            links_list.append(f'→ <a href="{event.reg_url}">Регистрация на сайте</a>\nИли в телеграм-боте 👇')
         if event.stream_url:
             links_list.append(f'→ <a href="{event.stream_url}">Трансляция</a>')
         links_str = "\n\n" + "\n".join(links_list) if links_list else ""
@@ -1058,7 +1058,7 @@ async def process_edit_event_value(message: Message, state: FSMContext):
         
         links_list = []
         if event.reg_url:
-            links_list.append(f'→ <a href="{event.reg_url}">Регистрация</a>')
+            links_list.append(f'→ <a href="{event.reg_url}">Регистрация на сайте</a>\nИли в телеграм-боте 👇')
         if event.stream_url:
             links_list.append(f'→ <a href="{event.stream_url}">Трансляция</a>')
         links_str = "\n\n" + "\n".join(links_list) if links_list else ""
@@ -2354,7 +2354,7 @@ async def send_event_creation_notifications(bot, event):
     tags_str = " ".join([f"#{tag}" for tag in event.tags])
     links_list = []
     if event.reg_url:
-        links_list.append(f'→ <a href="{event.reg_url}">Регистрация на сайте</a>')
+        links_list.append(f'→ <a href="{event.reg_url}">Регистрация на сайте</a>\nИли в телеграм-боте 👇')
     if event.stream_url:
         links_list.append(f'→ <a href="{event.stream_url}">Трансляция</a>')
     links_str = "\n\n" + "\n".join(links_list) if links_list else ""
