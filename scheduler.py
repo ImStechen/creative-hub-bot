@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from aiogram import Bot
 from sqlalchemy import select
 
@@ -23,7 +23,8 @@ async def check_and_send_reminders(bot: Bot):
         events_result = await session.execute(events_query)
         events = events_result.scalars().all()
         
-        now = datetime.now()
+        # Получаем текущее время в Московском часовом поясе (UTC+3) для корректного сравнения с БД
+        now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=3))).replace(tzinfo=None)
         
         for event in events:
             # Парсим дату и время начала события
