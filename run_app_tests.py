@@ -14,7 +14,7 @@ sys.stdout.reconfigure(encoding='utf-8')
 
 from sqlalchemy import select, delete, func
 from database.db import init_db, async_session
-from database.models import User, Event, Registration, Raffle, Admin, SystemTag, FeedbackMessage, ReadPostMaterials, PartnerEvent
+from database.models import User, Event, Registration, Raffle, Admin, SystemTag, FeedbackMessage, ReadPostMaterials, PartnerEvent, EventSeries, SeriesQuestion, SeriesEvent, SeriesApplication
 
 # --- Mock Classes for Aiogram ---
 class DummyUser:
@@ -1074,7 +1074,7 @@ async def test_suite():
         assert p_state.state == admin_handlers.PartnerEventForm.date # stays on date
         
         # Valid date range
-        await admin_handlers.process_add_partner_date(DummyMessage(999, "ASaavedraA", "16.07.2026-17.07.2026"), p_state)
+        await admin_handlers.process_add_partner_date(DummyMessage(999, "ASaavedraA", "16.12.2026-17.12.2026"), p_state)
         assert p_state.state == admin_handlers.PartnerEventForm.description
         
         # Step 3: description
@@ -1090,7 +1090,7 @@ async def test_suite():
             pevents = (await test_session.execute(select(PartnerEvent))).scalars().all()
             assert len(pevents) == 1
             assert pevents[0].title == "Партнерский Ивент"
-            assert pevents[0].date == "16.07.2026-17.07.2026"
+            assert pevents[0].date == "16.12.2026-17.12.2026"
             
         # 20.3 Test count on button (should show count of 1)
         user_msg = DummyMessage(123, "john_doe")
@@ -1108,7 +1108,7 @@ async def test_suite():
         
         comp_text = comp_msg.sent_messages[-1][0]
         assert "Мероприятия партнёров Хаба:" in comp_text
-        assert "▪️ <b>16 июля-17 июля 2026 | Партнерский Ивент</b>" in comp_text
+        assert "▪️ <b>16 декабря-17 декабря 2026 | Партнерский Ивент</b>" in comp_text
         assert "Описание партнера" in comp_text
         assert "→ Подробности" in comp_text
         
@@ -1199,6 +1199,125 @@ async def test_suite():
         assert last_row_arch_evs[1].text == "← К списку" and last_row_arch_evs[1].callback_data == "back_to_main"
         
         print("Horizontal navigation buttons test PASSED!")
+
+        # ----------------------------------------------------
+        # 22. Event Series & Dynamic Questionnaire Flow
+        # ----------------------------------------------------
+        print("Testing Event Series & Dynamic Questionnaire flow...")
+        
+        # 22.1 Create Event Series via Admin
+        create_s_state = DummyState()
+        create_s_msg = DummyMessage(999, "ASaavedraA", "ДВЕРИ: Открытое ревью работ")
+        cb_create_s = DummyCallbackQuery("admin_create_series", 999, "ASaavedraA", create_s_msg)
+        await admin_handlers.process_admin_create_series(cb_create_s, create_s_state)
+        await admin_handlers.process_create_series_title(create_s_msg, create_s_state)
+        
+        desc_msg = DummyMessage(999, "ASaavedraA", "Общее описание серии ДВЕРИ")
+        await admin_handlers.process_create_series_description(desc_msg, create_s_state)
+        
+        img_msg = DummyMessage(999, "ASaavedraA")
+        class DummyPhoto:
+            def __init__(self, file_id):
+                self.file_id = file_id
+        img_msg.photo = [DummyPhoto("series_photo_123")]
+        await admin_handlers.process_create_series_image(img_msg, create_s_state)
+        
+        async with async_session() as test_session:
+            series = (await test_session.execute(select(EventSeries))).scalars().first()
+            assert series is not None
+            assert series.title == "ДВЕРИ: Открытое ревью работ"
+            assert series.image_id == "series_photo_123"
+            series_id = series.id
+
+        # 22.2 Admin Constructor: Add Questions to Series
+        q_state = DummyState()
+        cb_edit_form = DummyCallbackQuery(f"admin_series_edit_form_{series_id}", 999, "ASaavedraA", DummyMessage(999, "ASaavedraA"))
+        await admin_handlers.process_admin_series_edit_form(cb_edit_form, q_state)
+        
+        q1_msg = DummyMessage(999, "ASaavedraA", "Ссылка на ваше портфолио")
+        await admin_handlers.process_admin_q_message(q1_msg, q_state)
+        
+        q2_msg = DummyMessage(999, "ASaavedraA", "Почему вы хотите участвовать?")
+        await admin_handlers.process_admin_q_message(q2_msg, q_state)
+        
+        cb_finish_q = DummyCallbackQuery("admin_q_finish", 999, "ASaavedraA", DummyMessage(999, "ASaavedraA"))
+        await admin_handlers.process_admin_q_finish(cb_finish_q, q_state)
+        
+        async with async_session() as test_session:
+            questions = (await test_session.execute(select(SeriesQuestion).where(SeriesQuestion.series_id == series_id))).scalars().all()
+            assert len(questions) == 2
+            assert questions[0].question_text == "Ссылка на ваше портфолио"
+            assert questions[1].question_text == "Почему вы хотите участвовать?"
+
+        # 22.3 Add Event to Series via Admin
+        add_se_state = DummyState()
+        cb_add_se = DummyCallbackQuery(f"admin_series_add_event_{series_id}", 999, "ASaavedraA", DummyMessage(999, "ASaavedraA"))
+        await admin_handlers.process_admin_series_add_event(cb_add_se, add_se_state)
+        
+        await admin_handlers.process_series_event_topic(DummyMessage(999, "ASaavedraA", "Иллюстрация"), add_se_state)
+        await admin_handlers.process_series_event_date(DummyMessage(999, "ASaavedraA", "24.09.2026"), add_se_state)
+        await admin_handlers.process_series_event_time(DummyMessage(999, "ASaavedraA", "18:30-21:00"), add_se_state)
+        await admin_handlers.process_series_event_extra_text(DummyMessage(999, "ASaavedraA", "Доп инфо о жюри"), add_se_state)
+        
+        async with async_session() as test_session:
+            sevent = (await test_session.execute(select(SeriesEvent).where(SeriesEvent.series_id == series_id))).scalars().first()
+            assert sevent is not None
+            assert sevent.topic == "Иллюстрация"
+            assert sevent.date == "24.09.2026"
+            sevent_id = sevent.id
+
+        # 22.4 User View Series Screen & Apply via Questionnaire
+        user_s_msg = DummyMessage(123, "john_doe")
+        cb_user_s = DummyCallbackQuery(f"user_series_{series_id}", 123, "john_doe", user_s_msg)
+        await handlers.process_user_series(cb_user_s, DummyState())
+        
+        assert len(user_s_msg.sent_messages) > 0
+        caption_text = user_s_msg.sent_messages[-1][0]
+        assert "ДВЕРИ: Открытое ревью работ" in caption_text
+        assert "24.09.2026. Иллюстрация" in caption_text
+
+        # Start questionnaire FSM
+        user_q_state = DummyState()
+        cb_user_se = DummyCallbackQuery(f"user_sevent_{sevent_id}", 123, "john_doe", DummyMessage(123, "john_doe"))
+        await handlers.process_user_sevent_start(cb_user_se, user_q_state)
+        
+        # Answer Question 1
+        ans1_msg = DummyMessage(123, "john_doe", "https://portfolio.com/me")
+        await handlers.process_series_app_answer(ans1_msg, user_q_state)
+        
+        # Answer Question 2
+        ans2_msg = DummyMessage(123, "john_doe", "Хочу получить фидбек от профи")
+        await handlers.process_series_app_answer(ans2_msg, user_q_state)
+        
+        assert user_q_state.state == handlers.SeriesAppForm.confirming
+        
+        # Confirm application
+        cb_confirm_app = DummyCallbackQuery("confirm_series_app", 123, "john_doe", DummyMessage(123, "john_doe"))
+        await handlers.process_confirm_series_app(cb_confirm_app, user_q_state)
+        
+        async with async_session() as test_session:
+            app = (await test_session.execute(select(SeriesApplication).where(SeriesApplication.series_event_id == sevent_id))).scalars().first()
+            assert app is not None
+            assert app.user_id == 123
+            assert app.answers["Ссылка на ваше портфолио"] == "https://portfolio.com/me"
+            assert app.answers["Почему вы хотите участвовать?"] == "Хочу получить фидбек от профи"
+
+        # 22.5 Admin Soft-Delete Event and Verify Historical Application Retention
+        cb_del_se = DummyCallbackQuery(f"admin_confirm_del_sevent_{sevent_id}", 999, "ASaavedraA", DummyMessage(999, "ASaavedraA"))
+        await admin_handlers.process_admin_confirm_del_sevent(cb_del_se)
+        
+        async with async_session() as test_session:
+            sevent_deleted = await test_session.get(SeriesEvent, sevent_id)
+            assert sevent_deleted.is_deleted == 1
+            # Applications must still exist in DB!
+            apps_count = (await test_session.execute(select(func.count(SeriesApplication.id)).where(SeriesApplication.series_event_id == sevent_id))).scalar()
+            assert apps_count == 1
+
+        # 22.6 Admin Excel Export for Series Event Applications
+        cb_export_se = DummyCallbackQuery(f"admin_export_sevent_{sevent_id}", 999, "ASaavedraA", DummyMessage(999, "ASaavedraA"))
+        await admin_handlers.process_admin_export_sevent(cb_export_se)
+        
+        print("Event Series & Dynamic Questionnaire flow test PASSED!")
 
 
 

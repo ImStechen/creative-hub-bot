@@ -7,6 +7,7 @@ def get_admin_main_keyboard() -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="Выгрузить список регистраций", callback_data="admin_export_registrations")],
         [InlineKeyboardButton(text="Редактировать мероприятие", callback_data="admin_edit_events")],
+        [InlineKeyboardButton(text="Редактировать серию мероприятий", callback_data="admin_edit_series")],
         [InlineKeyboardButton(text="Редактировать теги", callback_data="admin_edit_tags")],
         [InlineKeyboardButton(text="Редактировать пост-материалы", callback_data="admin_edit_post_mats")],
         [InlineKeyboardButton(text="Редактировать розыгрыш", callback_data="admin_edit_raffles")],
@@ -651,6 +652,56 @@ def get_admin_export_back_keyboard() -> InlineKeyboardMarkup:
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_admin_series_list_keyboard(series_list: list) -> InlineKeyboardMarkup:
+    buttons = []
+    for s in series_list:
+        buttons.append([InlineKeyboardButton(text=s.title, callback_data=f"admin_select_series_{s.id}")])
+    buttons.append([InlineKeyboardButton(text="Создать серию", callback_data="admin_create_series")])
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data="btn_admin"),
+        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_admin_series_actions_keyboard(series_id: int) -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="Выгрузить список регистраций", callback_data=f"admin_series_export_{series_id}")],
+        [InlineKeyboardButton(text="Добавить событие", callback_data=f"admin_series_add_event_{series_id}")],
+        [InlineKeyboardButton(text="Удалить событие", callback_data=f"admin_series_del_event_list_{series_id}")],
+        [InlineKeyboardButton(text="Редактировать текст-описание серии", callback_data=f"admin_series_edit_info_{series_id}")],
+        [InlineKeyboardButton(text="Редактировать анкету регистрации", callback_data=f"admin_series_edit_form_{series_id}")],
+        [
+            InlineKeyboardButton(text="Назад", callback_data="admin_edit_series"),
+            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_questionnaire_loop_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [
+            InlineKeyboardButton(text="Назад", callback_data="admin_q_back"),
+            InlineKeyboardButton(text="Отмена", callback_data="admin_cancel"),
+            InlineKeyboardButton(text="Завершить", callback_data="admin_q_finish")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_series_events_select_keyboard(events: list, prefix: str, series_id: int) -> InlineKeyboardMarkup:
+    buttons = []
+    for e in events:
+        buttons.append([InlineKeyboardButton(text=f"{e.date} | {e.topic}", callback_data=f"{prefix}_{e.id}")])
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data=f"admin_select_series_{series_id}"),
+        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
 
 
 

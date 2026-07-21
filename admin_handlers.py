@@ -11,7 +11,7 @@ from keyboards import get_to_main_keyboard, get_event_notification_keyboard
 
 import config
 from database.db import async_session
-from database.models import User, Event, Raffle, Registration, Admin, FeedbackMessage, PartnerEvent
+from database.models import User, Event, Raffle, Registration, Admin, FeedbackMessage, PartnerEvent, EventSeries, SeriesQuestion, SeriesEvent, SeriesApplication
 from admin_keyboards import (
     get_admin_main_keyboard,
     get_skip_keyboard,
@@ -58,7 +58,11 @@ from admin_keyboards import (
     get_admin_export_archive_events_keyboard,
     get_admin_export_back_keyboard,
     get_feedback_navigation_keyboard,
-    get_admin_partner_events_keyboard
+    get_admin_partner_events_keyboard,
+    get_admin_series_list_keyboard,
+    get_admin_series_actions_keyboard,
+    get_questionnaire_loop_keyboard,
+    get_series_events_select_keyboard
 )
 
 router = Router()
@@ -127,6 +131,25 @@ class PostMatsForm(StatesGroup):
     article_url = State()
     presentations_url = State()
     other_materials_url = State()
+
+
+class CreateSeriesForm(StatesGroup):
+    title = State()
+    description = State()
+    image = State()
+
+
+class AddSeriesEventForm(StatesGroup):
+    series_id = State()
+    topic = State()
+    date = State()
+    time = State()
+    extra_text = State()
+
+
+class SeriesQuestionnaireForm(StatesGroup):
+    series_id = State()
+    asking_question = State()
 
 
 
@@ -2988,5 +3011,448 @@ async def process_admin_del_pevent(callback: CallbackQuery):
         else:
             await callback.answer("Мероприятие партнеров не найдено.")
     await callback.answer()
+
+
+# ==========================================
+# УПРАВЛЕНИЕ СЕРИЯМИ МЕРОПРИЯТИЙ (ДВЕРИ И Т.Д.)
+# ==========================================
+
+@router.callback_query(F.data == "admin_edit_series")
+async def process_admin_edit_series(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    async with async_session() as session:
+        if not await is_user_admin(callback.from_user.username, session):
+            await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
+            return
+
+        res = await session.execute(select(EventSeries))
+        series_list = res.scalars().all()
+
+        await callback.message.answer(
+            "Какую серию мероприятий редактировать?",
+            reply_markup=get_admin_series_list_keyboard(series_list)
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_create_series")
+async def process_admin_create_series(callback: CallbackQuery, state: FSMContext):
+    async with async_session() as session:
+        if not await is_user_admin(callback.from_user.username, session):
+            await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
+            return
+
+    await state.set_state(CreateSeriesForm.title)
+    await callback.message.answer(
+        "Вопрос 1: Введите название серии (например, «ДВЕРИ: Открытое ревью работ»)",
+        reply_markup=get_cancel_keyboard(show_back=False)
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_series_edit_info_"))
+async def process_admin_series_edit_info(callback: CallbackQuery, state: FSMContext):
+    series_id = int(callback.data.split("_")[4])
+    await state.set_state(CreateSeriesForm.title)
+    await state.update_data(editing_series_id=series_id)
+    await callback.message.answer(
+        "Вопрос 1: Введите новое название серии",
+        reply_markup=get_cancel_keyboard(show_back=False)
+    )
+    await callback.answer()
+
+
+@router.message(CreateSeriesForm.title)
+async def process_create_series_title(message: Message, state: FSMContext):
+    title = message.text.strip() if message.text else ""
+    if not title:
+        await message.answer("Пожалуйста, введите текстовое название серии:", reply_markup=get_cancel_keyboard(show_back=False))
+        return
+    await state.update_data(title=title)
+    await state.set_state(CreateSeriesForm.description)
+    await message.answer(
+        "Вопрос 2: Введите описание серии (сохраняется форматирование, полученное от вас)",
+        reply_markup=get_cancel_keyboard(show_back=False)
+    )
+
+
+@router.message(CreateSeriesForm.description)
+async def process_create_series_description(message: Message, state: FSMContext):
+    desc = message.html_text if message.html_text else message.text
+    if not desc:
+        await message.answer("Пожалуйста, введите текстовое описание серии:", reply_markup=get_cancel_keyboard(show_back=False))
+        return
+    await state.update_data(description=desc)
+    await state.set_state(CreateSeriesForm.image)
+    await message.answer(
+        "Вопрос 3: Пришлите картинку-афишу серии файлом (без сжатия) или обычной фотографией",
+        reply_markup=get_cancel_keyboard(show_back=False)
+    )
+
+
+@router.message(CreateSeriesForm.image, F.photo | F.document)
+async def process_create_series_image(message: Message, state: FSMContext):
+    image_id = None
+    if message.photo:
+        image_id = message.photo[-1].file_id
+    elif message.document and message.document.mime_type and message.document.mime_type.startswith("image/"):
+        image_id = message.document.file_id
+
+    if not image_id:
+        await message.answer("Пожалуйста, пришлите графический файл или фото:", reply_markup=get_cancel_keyboard(show_back=False))
+        return
+
+    data = await state.get_data()
+    editing_series_id = data.get("editing_series_id")
+
+    async with async_session() as session:
+        if editing_series_id:
+            series = await session.get(EventSeries, editing_series_id)
+            if series:
+                series.title = data["title"]
+                series.description = data["description"]
+                series.image_id = image_id
+                session.add(series)
+                await session.commit()
+                target_series_id = series.id
+        else:
+            new_series = EventSeries(
+                title=data["title"],
+                description=data["description"],
+                image_id=image_id
+            )
+            session.add(new_series)
+            await session.commit()
+            target_series_id = new_series.id
+
+    await state.clear()
+    await message.answer(
+        "Описание серии успешно сохранено!",
+        reply_markup=get_admin_series_actions_keyboard(target_series_id)
+    )
+
+
+@router.callback_query(F.data.startswith("admin_select_series_"))
+async def process_admin_select_series(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    series_id = int(callback.data.split("_")[3])
+    async with async_session() as session:
+        series = await session.get(EventSeries, series_id)
+        if not series:
+            await callback.answer("Серия не найдена.")
+            return
+
+        await callback.message.answer(
+            f"Управление серией «<b>{series.title}</b>»\nЧто вы хотите сделать?",
+            reply_markup=get_admin_series_actions_keyboard(series.id)
+        )
+    await callback.answer()
+
+
+# ----- Кнопка 2: Добавить событие в серию -----
+
+@router.callback_query(F.data.startswith("admin_series_add_event_"))
+async def process_admin_series_add_event(callback: CallbackQuery, state: FSMContext):
+    series_id = int(callback.data.split("_")[4])
+    await state.set_state(AddSeriesEventForm.topic)
+    await state.update_data(series_id=series_id)
+    await callback.message.answer(
+        "1. Укажите тематику (название события в серии, например: «Иллюстрация»):",
+        reply_markup=get_cancel_keyboard(show_back=False)
+    )
+    await callback.answer()
+
+
+@router.message(AddSeriesEventForm.topic)
+async def process_series_event_topic(message: Message, state: FSMContext):
+    topic = message.text.strip() if message.text else ""
+    if not topic:
+        await message.answer("Пожалуйста, введите тематику события:", reply_markup=get_cancel_keyboard(show_back=False))
+        return
+    await state.update_data(topic=topic)
+    await state.set_state(AddSeriesEventForm.date)
+    await message.answer(
+        "2. Укажите дату события в формате ДД.ММ.ГГГГ или ДД.ММ.ГГГГ-ДД.ММ.ГГГГ:",
+        reply_markup=get_cancel_keyboard(show_back=False)
+    )
+
+
+@router.message(AddSeriesEventForm.date)
+async def process_series_event_date(message: Message, state: FSMContext):
+    date_str = message.text.strip() if message.text else ""
+    if not date_str:
+        await message.answer("Пожалуйста, укажите дату события:", reply_markup=get_cancel_keyboard(show_back=False))
+        return
+    await state.update_data(date=date_str)
+    await state.set_state(AddSeriesEventForm.time)
+    await message.answer(
+        "3. Введите время события в формате ЧЧ:ММ или ЧЧ:ММ-ЧЧ:ММ:",
+        reply_markup=get_cancel_keyboard(show_back=False)
+    )
+
+
+@router.message(AddSeriesEventForm.time)
+async def process_series_event_time(message: Message, state: FSMContext):
+    time_str = message.text.strip() if message.text else ""
+    if not time_str:
+        await message.answer("Пожалуйста, введите время события:", reply_markup=get_cancel_keyboard(show_back=False))
+        return
+    await state.update_data(time=time_str)
+    await state.set_state(AddSeriesEventForm.extra_text)
+    await message.answer(
+        "4. Введите дополнительный текст при желании (сохраняется пользовательское форматирование):",
+        reply_markup=get_skip_keyboard("skip_series_extra_text")
+    )
+
+
+@router.callback_query(F.data == "skip_series_extra_text", AddSeriesEventForm.extra_text)
+async def process_skip_series_extra_text(callback: CallbackQuery, state: FSMContext):
+    await save_series_event(callback.message, state, extra_text="")
+    await callback.answer()
+
+
+@router.message(AddSeriesEventForm.extra_text)
+async def process_series_event_extra_text(message: Message, state: FSMContext):
+    extra_text = message.html_text if message.html_text else (message.text or "")
+    await save_series_event(message, state, extra_text=extra_text)
+
+
+async def save_series_event(message_or_msg, state: FSMContext, extra_text: str):
+    data = await state.get_data()
+    series_id = data["series_id"]
+
+    async with async_session() as session:
+        new_event = SeriesEvent(
+            series_id=series_id,
+            topic=data["topic"],
+            date=data["date"],
+            time=data["time"],
+            extra_text=extra_text,
+            is_deleted=0
+        )
+        session.add(new_event)
+        await session.commit()
+
+    await state.clear()
+    await message_or_msg.answer(
+        "Событие серии успешно добавлено!",
+        reply_markup=get_admin_series_actions_keyboard(series_id)
+    )
+
+
+# ----- Кнопка 3: Удалить событие в серии -----
+
+@router.callback_query(F.data.startswith("admin_series_del_event_list_"))
+async def process_admin_series_del_event_list(callback: CallbackQuery):
+    series_id = int(callback.data.split("_")[5])
+    async with async_session() as session:
+        res = await session.execute(
+            select(SeriesEvent).where(SeriesEvent.series_id == series_id, SeriesEvent.is_deleted == 0)
+        )
+        events = res.scalars().all()
+
+        if not events:
+            await callback.message.answer(
+                "В этой серии пока нет активных событий для удаления.",
+                reply_markup=get_admin_series_actions_keyboard(series_id)
+            )
+        else:
+            await callback.message.answer(
+                "Выберите событие для удаления из серии:",
+                reply_markup=get_series_events_select_keyboard(events, "admin_confirm_del_sevent", series_id)
+            )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_confirm_del_sevent_"))
+async def process_admin_confirm_del_sevent(callback: CallbackQuery):
+    event_id = int(callback.data.split("_")[4])
+    async with async_session() as session:
+        event = await session.get(SeriesEvent, event_id)
+        if event:
+            event.is_deleted = 1
+            session.add(event)
+            await session.commit()
+            await callback.message.answer(
+                f"Событие «{event.topic}» удалено из серии. Все сохраненные ранее заявки и базы сохраняются!",
+                reply_markup=get_admin_series_actions_keyboard(event.series_id)
+            )
+        else:
+            await callback.answer("Событие серии не найдено.")
+    await callback.answer()
+
+
+# ----- Кнопка 5: Редактировать анкету регистрации (Конструктор) -----
+
+@router.callback_query(F.data.startswith("admin_series_edit_form_"))
+async def process_admin_series_edit_form(callback: CallbackQuery, state: FSMContext):
+    series_id = int(callback.data.split("_")[4])
+    await state.set_state(SeriesQuestionnaireForm.asking_question)
+    await state.update_data(series_id=series_id, questions=[])
+
+    await callback.message.answer(
+        "<b>Конструктор анкеты серии</b>\n\n"
+        "Вопрос 1. Введите текст вопроса для анкеты с итоговым форматированием:",
+        reply_markup=get_questionnaire_loop_keyboard(),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_q_back", SeriesQuestionnaireForm.asking_question)
+async def process_admin_q_back(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    questions = data.get("questions", [])
+    if questions:
+        questions.pop()
+        await state.update_data(questions=questions)
+    
+    q_num = len(questions) + 1
+    await callback.message.answer(
+        f"Вопрос {q_num}. Введите текст вопроса для анкеты с итоговым форматированием:",
+        reply_markup=get_questionnaire_loop_keyboard(),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@router.message(SeriesQuestionnaireForm.asking_question)
+async def process_admin_q_message(message: Message, state: FSMContext):
+    q_text = message.html_text if message.html_text else message.text
+    if not q_text:
+        await message.answer("Пожалуйста, введите текстовый вопрос:", reply_markup=get_questionnaire_loop_keyboard())
+        return
+
+    data = await state.get_data()
+    questions = data.get("questions", [])
+    questions.append(q_text)
+    await state.update_data(questions=questions)
+
+    q_num = len(questions) + 1
+    await message.answer(
+        f"Вопрос {q_num}. Введите текст вопроса для анкеты с итоговым форматированием:",
+        reply_markup=get_questionnaire_loop_keyboard(),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "admin_q_finish", SeriesQuestionnaireForm.asking_question)
+async def process_admin_q_finish(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    series_id = data["series_id"]
+    questions = data.get("questions", [])
+
+    async with async_session() as session:
+        # Удаляем старые вопросы серии и записываем новый список вопросов
+        await session.execute(
+            SeriesQuestion.__table__.delete().where(SeriesQuestion.series_id == series_id)
+        )
+        for idx, q_text in enumerate(questions, start=1):
+            sq = SeriesQuestion(
+                series_id=series_id,
+                question_order=idx,
+                question_text=q_text
+            )
+            session.add(sq)
+        await session.commit()
+
+    await state.clear()
+    
+    summary = "\n".join([f"{i}. {q}" for i, q in enumerate(questions, 1)]) if questions else "Вопросы отсутствуют."
+    await callback.message.answer(
+        f"Анкета серии успешно создана!\n\n<b>Список вопросов:</b>\n{summary}",
+        reply_markup=get_admin_series_actions_keyboard(series_id),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+# ----- Кнопка 1: Выгрузить список регистраций серии -----
+
+@router.callback_query(F.data.startswith("admin_series_export_"))
+async def process_admin_series_export(callback: CallbackQuery):
+    series_id = int(callback.data.split("_")[3])
+    async with async_session() as session:
+        res = await session.execute(
+            select(SeriesEvent).where(SeriesEvent.series_id == series_id)
+        )
+        events = res.scalars().all()
+
+        if not events:
+            await callback.message.answer(
+                "В этой серии пока нет событий для выгрузки заявок.",
+                reply_markup=get_admin_series_actions_keyboard(series_id)
+            )
+        else:
+            await callback.message.answer(
+                "Выберите событие серии для выгрузки Excel-таблицы заявок:",
+                reply_markup=get_series_events_select_keyboard(events, "admin_export_sevent", series_id)
+            )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_export_sevent_"))
+async def process_admin_export_sevent(callback: CallbackQuery):
+    event_id = int(callback.data.split("_")[3])
+    import openpyxl
+    import io
+
+    async with async_session() as session:
+        sevent = await session.get(SeriesEvent, event_id)
+        if not sevent:
+            await callback.answer("Событие серии не найдено.")
+            return
+
+        res = await session.execute(
+            select(SeriesApplication).where(SeriesApplication.series_event_id == event_id).order_by(SeriesApplication.created_at.asc())
+        )
+        apps = res.scalars().all()
+
+        if not apps:
+            await callback.message.answer(
+                f"На событие «{sevent.topic}» пока нет поданных заявок.",
+                reply_markup=get_admin_series_actions_keyboard(sevent.series_id)
+            )
+            await callback.answer()
+            return
+
+        # Динамически собираем все уникальные вопросы, встречающиеся в ответах пользователей
+        header_questions = []
+        for app in apps:
+            if isinstance(app.answers, dict):
+                for q_title in app.answers.keys():
+                    if q_title not in header_questions:
+                        header_questions.append(q_title)
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Заявки серии"
+
+        # Заголовки столбцов
+        headers = ["Telegram ID", "Никнейм", "Дата и время подачи"] + header_questions
+        ws.append(headers)
+
+        for app in apps:
+            username_str = f"@{app.username}" if app.username else "нет юзернейма"
+            answers_dict = app.answers if isinstance(app.answers, dict) else {}
+            row = [app.user_id, username_str, app.created_at]
+            for q_title in header_questions:
+                row.append(answers_dict.get(q_title, ""))
+            ws.append(row)
+
+        stream = io.BytesIO()
+        wb.save(stream)
+        stream.seek(0)
+
+        filename = f"applications_series_event_{event_id}.xlsx"
+        input_file = BufferedInputFile(stream.read(), filename=filename)
+
+        await callback.message.answer_document(
+            document=input_file,
+            caption=f"Выгрузка заявок по событию «{sevent.topic}» ({len(apps)} шт.)",
+            reply_markup=get_admin_series_actions_keyboard(sevent.series_id)
+        )
+    await callback.answer()
+
 
 

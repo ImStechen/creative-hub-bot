@@ -1,15 +1,22 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from config import is_super_admin
 
-def get_main_menu_keyboard(is_admin: bool, raffle_count: int) -> InlineKeyboardMarkup:
+def get_main_menu_keyboard(is_admin: bool, raffle_count: int, series_list: list = None) -> InlineKeyboardMarkup:
     """
     Генерирует главное меню с Inline-кнопками согласно доке.
     """
     buttons = [
-        [InlineKeyboardButton(text="Подробнее о мероприятиях", callback_data="btn_events_info")],
+        [InlineKeyboardButton(text="Подробнее о мероприятиях", callback_data="btn_events_info")]
+    ]
+    
+    if series_list:
+        for s in series_list:
+            buttons.append([InlineKeyboardButton(text=s.title, callback_data=f"user_series_{s.id}")])
+            
+    buttons.extend([
         [InlineKeyboardButton(text="Настроить предпочтения", callback_data="btn_preferences")],
         [InlineKeyboardButton(text="Архив пост-материалов", callback_data="btn_archive")]
-    ]
+    ])
     
     # Кнопка обратной связи показывается только рядовым пользователям и без эмодзи
     if not is_admin:
@@ -21,6 +28,26 @@ def get_main_menu_keyboard(is_admin: bool, raffle_count: int) -> InlineKeyboardM
     if is_admin:
         buttons.append([InlineKeyboardButton(text="Администрирование", callback_data="btn_admin")])
         
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_user_series_events_keyboard(events: list) -> InlineKeyboardMarkup:
+    buttons = []
+    for e in events:
+        buttons.append([InlineKeyboardButton(text=f"{e.date}. {e.topic}", callback_data=f"user_sevent_{e.id}")])
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data="back_to_main"),
+        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_series_app_confirm_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="Отправить заявку", callback_data="confirm_series_app")],
+        [InlineKeyboardButton(text="Заполнить заново", callback_data="restart_series_app")],
+        [InlineKeyboardButton(text="Отмена", callback_data="back_to_main")]
+    ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 

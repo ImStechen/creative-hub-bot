@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import config
 from database.db import async_session
-from database.models import User, Event, Raffle, Registration, Admin, get_default_tags, get_default_notifications, FeedbackMessage, ReadPostMaterials, PartnerEvent
+from database.models import User, Event, Raffle, Registration, Admin, get_default_tags, get_default_notifications, FeedbackMessage, ReadPostMaterials, PartnerEvent, EventSeries, SeriesQuestion, SeriesEvent, SeriesApplication
 from keyboards import (
     get_main_menu_keyboard,
     get_events_list_keyboard,
@@ -22,11 +22,13 @@ from keyboards import (
     get_archive_events_keyboard,
     get_archive_detail_keyboard,
     get_raffle_detail_keyboard,
+    get_partners_events_keyboard,
+    get_user_series_events_keyboard,
+    get_series_app_confirm_keyboard,
     get_registration_keyboard,
     get_agreement_keyboard,
     get_cancel_feedback_keyboard,
-    get_to_main_back_keyboard,
-    get_partners_events_keyboard
+    get_to_main_back_keyboard
 )
 
 router = Router()
@@ -44,6 +46,13 @@ class PreferencesStates(StatesGroup):
 
 class FeedbackStates(StatesGroup):
     waiting_for_message = State()
+
+
+class SeriesAppForm(StatesGroup):
+    series_event_id = State()
+    current_question_index = State()
+    answers = State()
+    confirming = State()
 
 
 def is_event_hidden(event: Event) -> bool:
@@ -163,7 +172,9 @@ async def show_main_page(message: Message, telegram_id: int, username: str | Non
             if admin_result.scalar_one_or_none() is not None:
                 is_admin = True
 
-    kb = get_main_menu_keyboard(is_admin, raffle_count)
+    res_series = await session.execute(select(EventSeries))
+    series_list = res_series.scalars().all()
+    kb = get_main_menu_keyboard(is_admin, raffle_count, series_list)
     
     await message.answer(text, reply_markup=kb, disable_web_page_preview=True)
 
@@ -1227,3 +1238,200 @@ async def process_feedback_message(message: Message, state: FSMContext):
     
     async with async_session() as session:
         await show_main_page(message, telegram_id, username, session)
+
+
+# ==========================================
+# ПРОСМОТР СЕРИЙ МЕРОПРИЯТИЙ И ПОДАЧА ЗАЯВОК ПОЛЬЗОВАТЕЛЕМ
+# ==========================================
+
+@router.callback_query(F.data.startswith("user_series_"))
+async def process_user_series(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    series_id = int(callback.data.split("_")[2])
+
+    async with async_session() as session:
+        series = await session.get(EventSeries, series_id)
+        if not series:
+            await callback.answer("Серия мероприятий не найдена.")
+            return
+
+        res = await session.execute(
+            select(SeriesEvent).where(SeriesEvent.series_id == series_id, SeriesEvent.is_deleted == 0)
+        )
+        active_events = res.scalars().all()
+
+        lines = [
+            f"<b>{series.title}</b>\n",
+            f"{series.description or ''}\n",
+            "<b>События в серии:</b>\n"
+        ]
+
+        if not active_events:
+            lines.append("На данный момент нет открытых событий в этой серии.")
+        else:
+            for e in active_events:
+                event_block = f"<b>{e.date}. {e.topic}</b>\n"
+                if e.extra_text:
+                    event_block += f"{e.extra_text}\n"
+                event_block += f"{e.time}\n"
+                lines.append(event_block)
+
+        text = "\n".join(lines)
+        kb = get_user_series_events_keyboard(active_events)
+
+        if series.image_id:
+            try:
+                await callback.message.answer_photo(
+                    photo=series.image_id,
+                    caption=text,
+                    reply_markup=kb,
+                    parse_mode="HTML"
+                )
+            except Exception:
+                await callback.message.answer(
+                    text,
+                    reply_markup=kb,
+                    parse_mode="HTML",
+                    disable_web_page_preview=True
+                )
+        else:
+            await callback.message.answer(
+                text,
+                reply_markup=kb,
+                parse_mode="HTML",
+                disable_web_page_preview=True
+            )
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("user_sevent_"))
+async def process_user_sevent_start(callback: CallbackQuery, state: FSMContext):
+    sevent_id = int(callback.data.split("_")[2])
+
+    async with async_session() as session:
+        sevent = await session.get(SeriesEvent, sevent_id)
+        if not sevent:
+            await callback.answer("Событие серии не найдено.")
+            return
+
+        # Загружаем вопросы серии
+        res = await session.execute(
+            select(SeriesQuestion).where(SeriesQuestion.series_id == sevent.series_id).order_by(SeriesQuestion.question_order.asc())
+        )
+        questions = res.scalars().all()
+
+        if not questions:
+            await callback.message.answer("Для этой серии пока не настроена анкета участников.")
+            await callback.answer()
+            return
+
+        q_list = [q.question_text for q in questions]
+
+        await state.set_state(SeriesAppForm.current_question_index)
+        await state.update_data(
+            series_event_id=sevent_id,
+            questions=q_list,
+            current_question_index=0,
+            answers={}
+        )
+
+        first_q = q_list[0]
+        await callback.message.answer(
+            f"<b>Анкета участника ({sevent.topic})</b>\n\n"
+            f"<b>Вопрос 1 из {len(q_list)}:</b>\n"
+            f"{first_q}",
+            reply_markup=get_cancel_feedback_keyboard(),
+            parse_mode="HTML"
+        )
+    await callback.answer()
+
+
+@router.message(SeriesAppForm.current_question_index)
+async def process_series_app_answer(message: Message, state: FSMContext):
+    user_answer = message.html_text if message.html_text else message.text
+    if not user_answer:
+        await message.answer("Пожалуйста, введите текстовый ответ:", reply_markup=get_cancel_feedback_keyboard())
+        return
+
+    data = await state.get_data()
+    q_list = data.get("questions", [])
+    idx = data.get("current_question_index", 0)
+    answers = data.get("answers", {})
+
+    current_q_text = q_list[idx]
+    answers[current_q_text] = user_answer
+
+    idx += 1
+    if idx < len(q_list):
+        await state.update_data(current_question_index=idx, answers=answers)
+        next_q = q_list[idx]
+        await message.answer(
+            f"<b>Вопрос {idx + 1} из {len(q_list)}:</b>\n"
+            f"{next_q}",
+            reply_markup=get_cancel_feedback_keyboard(),
+            parse_mode="HTML"
+        )
+    else:
+        # Все вопросы отвечены -> Экран подтверждения
+        await state.set_state(SeriesAppForm.confirming)
+        await state.update_data(answers=answers)
+
+        summary_lines = ["<b>Проверьте вашу заявку:</b>\n"]
+        for i, (q_text, a_text) in enumerate(answers.items(), 1):
+            summary_lines.append(f"<b>{i}. {q_text}</b>\n{a_text}\n")
+
+        summary_text = "\n".join(summary_lines)
+        await message.answer(
+            summary_text,
+            reply_markup=get_series_app_confirm_keyboard(),
+            parse_mode="HTML"
+        )
+
+
+@router.callback_query(F.data == "restart_series_app", SeriesAppForm.confirming)
+async def process_restart_series_app(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    q_list = data.get("questions", [])
+    sevent_id = data.get("series_event_id")
+
+    await state.set_state(SeriesAppForm.current_question_index)
+    await state.update_data(current_question_index=0, answers={})
+
+    first_q = q_list[0]
+    await callback.message.answer(
+        f"<b>Анкета участника (заполнение заново)</b>\n\n"
+        f"<b>Вопрос 1 из {len(q_list)}:</b>\n"
+        f"{first_q}",
+        reply_markup=get_cancel_feedback_keyboard(),
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "confirm_series_app", SeriesAppForm.confirming)
+async def process_confirm_series_app(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    sevent_id = data["series_event_id"]
+    answers = data["answers"]
+
+    telegram_id = callback.from_user.id
+    username = callback.from_user.username
+
+    async with async_session() as session:
+        new_app = SeriesApplication(
+            series_event_id=sevent_id,
+            user_id=telegram_id,
+            username=username,
+            answers=answers,
+            created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+        session.add(new_app)
+        await session.commit()
+
+        await state.clear()
+        await callback.message.answer("Ваша заявка на участие успешно отправлена!")
+        await show_main_page(callback.message, telegram_id, username, session)
+
+    await callback.answer()
+
