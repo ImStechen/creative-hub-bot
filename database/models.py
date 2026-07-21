@@ -183,4 +183,68 @@ class PartnerEvent(Base):
         return f"<PartnerEvent id={self.id} title={self.title[:20]}...>"
 
 
+class EventSeries(Base):
+    __tablename__ = 'event_series'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    image_id = Column(String, nullable=True) # file_id картинки-афиши
+
+    events = relationship("SeriesEvent", back_populates="series", cascade="all, delete-orphan")
+    questions = relationship("SeriesQuestion", back_populates="series", cascade="all, delete-orphan", order_by="SeriesQuestion.question_order")
+
+    def __repr__(self):
+        return f"<EventSeries id={self.id} title={self.title}>"
+
+
+class SeriesQuestion(Base):
+    __tablename__ = 'series_questions'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    series_id = Column(Integer, ForeignKey('event_series.id', ondelete="CASCADE"), nullable=False)
+    question_order = Column(Integer, nullable=False) # 1, 2, 3...
+    question_text = Column(Text, nullable=False)
+
+    series = relationship("EventSeries", back_populates="questions")
+
+    def __repr__(self):
+        return f"<SeriesQuestion id={self.id} order={self.question_order}>"
+
+
+class SeriesEvent(Base):
+    __tablename__ = 'series_events'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    series_id = Column(Integer, ForeignKey('event_series.id', ondelete="CASCADE"), nullable=False)
+    topic = Column(String, nullable=False) # Тематика (название события в серии)
+    date = Column(String, nullable=False) # Дата проведения
+    time = Column(String, nullable=False) # Время проведения
+    extra_text = Column(Text, nullable=True) # Дополнительный текст
+    is_deleted = Column(Integer, nullable=False, default=0) # 0 = активен, 1 = мягко удален
+
+    series = relationship("EventSeries", back_populates="events")
+    applications = relationship("SeriesApplication", back_populates="event", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<SeriesEvent id={self.id} topic={self.topic}>"
+
+
+class SeriesApplication(Base):
+    __tablename__ = 'series_applications'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    series_event_id = Column(Integer, ForeignKey('series_events.id', ondelete="CASCADE"), nullable=False)
+    user_id = Column(BigInteger, nullable=False)
+    username = Column(String, nullable=True)
+    answers = Column(JSON, nullable=False) # Маппинг {вопрос: ответ}
+    created_at = Column(String, nullable=False) # YYYY-MM-DD HH:MM:SS
+
+    event = relationship("SeriesEvent", back_populates="applications")
+
+    def __repr__(self):
+        return f"<SeriesApplication id={self.id} user_id={self.user_id}>"
+
+
+
 
