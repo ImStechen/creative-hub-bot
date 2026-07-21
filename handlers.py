@@ -635,10 +635,7 @@ async def process_user_sevent_viewer_detail(callback: CallbackQuery):
             f"Зарегистрироваться как зритель 👇"
         )
 
-        res_q = await session.execute(select(SeriesQuestion).where(SeriesQuestion.series_id == series.id))
-        questions = res_q.scalars().all()
-        has_q = len(questions) > 0
-        kb = get_series_event_viewer_keyboard(sevent.id, has_questions=has_q)
+        kb = get_series_event_viewer_keyboard(sevent.id)
 
         if series.image_id:
             try:
