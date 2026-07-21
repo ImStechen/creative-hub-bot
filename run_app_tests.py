@@ -1115,7 +1115,7 @@ async def test_suite():
         comp_kb = comp_msg.sent_messages[-1][1]
         comp_btn_texts = [btn.text for row in comp_kb.inline_keyboard for btn in row]
         assert "Назад" in comp_btn_texts
-        assert "← К списку" in comp_btn_texts
+        assert "🏠 На главную" in comp_btn_texts
         
         # 20.5 Test deletion flow
         del_list_msg = DummyMessage(999, "ASaavedraA")
@@ -1147,56 +1147,56 @@ async def test_suite():
         last_row_active = kb_active_det.inline_keyboard[-1]
         assert len(last_row_active) == 2
         assert last_row_active[0].text == "Назад" and last_row_active[0].callback_data == "btn_events_info"
-        assert last_row_active[1].text == "← К списку" and last_row_active[1].callback_data == "back_to_main"
+        assert last_row_active[1].text == "🏠 На главную" and last_row_active[1].callback_data == "back_to_main"
         
         # 21.2 Archive event detail keyboard
         kb_arch_det = get_archive_detail_keyboard(1)
         last_row_arch = kb_arch_det.inline_keyboard[-1]
         assert len(last_row_arch) == 2
         assert last_row_arch[0].text == "Назад" and last_row_arch[0].callback_data == "arch_tag_1"
-        assert last_row_arch[1].text == "← К списку" and last_row_arch[1].callback_data == "back_to_main"
+        assert last_row_arch[1].text == "🏠 На главную" and last_row_arch[1].callback_data == "back_to_main"
         
         # 21.3 Admin active events export selection keyboard
         kb_ex_active = get_admin_export_events_keyboard([])
         last_row_ex_active = kb_ex_active.inline_keyboard[-1]
         assert len(last_row_ex_active) == 2
         assert last_row_ex_active[0].text == "Назад" and last_row_ex_active[0].callback_data == "admin_export_registrations"
-        assert last_row_ex_active[1].text == "← К списку" and last_row_ex_active[1].callback_data == "back_to_main"
+        assert last_row_ex_active[1].text == "🏠 На главную" and last_row_ex_active[1].callback_data == "back_to_main"
         
         # 21.4 Admin archive events export selection keyboard
         kb_ex_arch = get_admin_export_archive_events_keyboard([], 1)
         last_row_ex_arch = kb_ex_arch.inline_keyboard[-1]
         assert len(last_row_ex_arch) == 2
         assert last_row_ex_arch[0].text == "Назад" and last_row_ex_arch[0].callback_data == "admin_export_select_archive"
-        assert last_row_ex_arch[1].text == "← К списку" and last_row_ex_arch[1].callback_data == "back_to_main"
+        assert last_row_ex_arch[1].text == "🏠 На главную" and last_row_ex_arch[1].callback_data == "back_to_main"
         
         # 21.5 Partners events list keyboard
         kb_partners = get_partners_events_keyboard()
         last_row_partners = kb_partners.inline_keyboard[-1]
         assert len(last_row_partners) == 2
         assert last_row_partners[0].text == "Назад" and last_row_partners[0].callback_data == "btn_events_info"
-        assert last_row_partners[1].text == "← К списку" and last_row_partners[1].callback_data == "back_to_main"
+        assert last_row_partners[1].text == "🏠 На главную" and last_row_partners[1].callback_data == "back_to_main"
         
         # 21.6 Admin events menu keyboard
         kb_ad_ev = get_admin_events_keyboard()
         last_row_ad_ev = kb_ad_ev.inline_keyboard[-1]
         assert len(last_row_ad_ev) == 2
         assert last_row_ad_ev[0].text == "Назад" and last_row_ad_ev[0].callback_data == "btn_admin"
-        assert last_row_ad_ev[1].text == "← К списку" and last_row_ad_ev[1].callback_data == "back_to_main"
+        assert last_row_ad_ev[1].text == "🏠 На главную" and last_row_ad_ev[1].callback_data == "back_to_main"
         
         # 21.7 Archive tags selection keyboard
         kb_arch_tags = get_archive_tags_keyboard([])
         last_row_arch_tags = kb_arch_tags.inline_keyboard[-1]
         assert len(last_row_arch_tags) == 2
         assert last_row_arch_tags[0].text == "Назад" and last_row_arch_tags[0].callback_data == "back_to_main"
-        assert last_row_arch_tags[1].text == "← К списку" and last_row_arch_tags[1].callback_data == "back_to_main"
+        assert last_row_arch_tags[1].text == "🏠 На главную" and last_row_arch_tags[1].callback_data == "back_to_main"
         
         # 21.8 Archive events list keyboard
         kb_arch_evs = get_archive_events_keyboard([])
         last_row_arch_evs = kb_arch_evs.inline_keyboard[-1]
         assert len(last_row_arch_evs) == 2
         assert last_row_arch_evs[0].text == "Назад" and last_row_arch_evs[0].callback_data == "btn_archive"
-        assert last_row_arch_evs[1].text == "← К списку" and last_row_arch_evs[1].callback_data == "back_to_main"
+        assert last_row_arch_evs[1].text == "🏠 На главную" and last_row_arch_evs[1].callback_data == "back_to_main"
         
         print("Horizontal navigation buttons test PASSED!")
 
@@ -1258,6 +1258,7 @@ async def test_suite():
         await admin_handlers.process_series_event_date(DummyMessage(999, "ASaavedraA", "24.09.2026"), add_se_state)
         await admin_handlers.process_series_event_time(DummyMessage(999, "ASaavedraA", "18:30-21:00"), add_se_state)
         await admin_handlers.process_series_event_extra_text(DummyMessage(999, "ASaavedraA", "Доп инфо о жюри"), add_se_state)
+        await admin_handlers.process_series_event_tag_select(DummyCallbackQuery("admin_sevent_tag_0", 999, "ASaavedraA", DummyMessage(999, "ASaavedraA")), add_se_state)
         
         async with async_session() as test_session:
             sevent = (await test_session.execute(select(SeriesEvent).where(SeriesEvent.series_id == series_id))).scalars().first()
@@ -1287,7 +1288,14 @@ async def test_suite():
         ans1_msg = DummyMessage(123, "john_doe", "https://portfolio.com/me")
         await handlers.process_series_app_answer(ans1_msg, user_q_state)
         
-        # Answer Question 2
+        # Test 'Отмена' button during questionnaire
+        cb_cancel_q = DummyCallbackQuery("cancel_feedback", 123, "john_doe", DummyMessage(123, "john_doe"))
+        await handlers.process_feedback_cancel(cb_cancel_q, user_q_state)
+        assert user_q_state.state is None
+
+        # Restart questionnaire to finish testing application submission
+        await handlers.process_user_sevent_start(cb_user_se, user_q_state)
+        await handlers.process_series_app_answer(ans1_msg, user_q_state)
         ans2_msg = DummyMessage(123, "john_doe", "Хочу получить фидбек от профи")
         await handlers.process_series_app_answer(ans2_msg, user_q_state)
         
@@ -1400,13 +1408,90 @@ async def test_suite():
         pm_msg = dummy_bot.sent_messages[0][1]
         assert "Появились пост-материалы по мероприятию" in pm_msg
 
-        print("Post-Materials Notifications flow test PASSED!")
+        # ----------------------------------------------------
+        # 25. Event Series Deep Integration (Tagging, Main Page, Viewer Registration & Dual Export)
+        # ----------------------------------------------------
+        print("Testing Event Series Deep Integration (Tagging, Main Page, Viewer Reg & Dual Export)...")
 
+        # 25.1 Create a new Series Event with tag selection
+        async with async_session() as test_session:
+            series_obj = (await test_session.execute(select(EventSeries))).scalars().first()
+            series_id = series_obj.id
 
+        se_state = DummyState()
+        await se_state.set_state(admin_handlers.AddSeriesEventForm.topic)
+        await se_state.update_data(series_id=series_id)
 
+        # Topic
+        msg_topic = DummyMessage(999, "ASaavedraA", "Мастер-класс по виртуальной реальности")
+        await admin_handlers.process_series_event_topic(msg_topic, se_state)
 
+        # Date
+        msg_date = DummyMessage(999, "ASaavedraA", "25.09.2026")
+        await admin_handlers.process_series_event_date(msg_date, se_state)
 
+        # Time
+        msg_time = DummyMessage(999, "ASaavedraA", "18:00")
+        await admin_handlers.process_series_event_time(msg_time, se_state)
 
+        # Extra text -> skip
+        cb_skip_extra = DummyCallbackQuery("skip_series_extra_text", 999, "ASaavedraA", DummyMessage(999, "ASaavedraA"))
+        await admin_handlers.process_skip_series_extra_text(cb_skip_extra, se_state)
+
+        # Tag selection -> choose idx 0
+        cb_tag_select = DummyCallbackQuery("admin_sevent_tag_0", 999, "ASaavedraA", DummyMessage(999, "ASaavedraA"))
+        await admin_handlers.process_series_event_tag_select(cb_tag_select, se_state)
+
+        async with async_session() as test_session:
+            new_sevent = (await test_session.execute(
+                select(SeriesEvent).where(SeriesEvent.topic == "Мастер-класс по виртуальной реальности")
+            )).scalar_one_or_none()
+            assert new_sevent is not None
+            assert new_sevent.tag is not None
+            sevent_id = new_sevent.id
+
+        # 25.2 Main Page Rendering with Series Events
+        async with async_session() as test_session:
+            main_msg = DummyMessage(123456, "testuser1")
+            await handlers.show_main_page(main_msg, 123456, "testuser1", test_session)
+            assert len(main_msg.sent_messages) > 0
+            main_text = main_msg.sent_messages[0][0]
+            assert "#СерияМероприятий" in main_text
+
+        # 25.3 Viewer Detail Card & Guest Registration
+        async with async_session() as test_session:
+            u123 = await test_session.get(User, 123456)
+            if u123:
+                u123.is_registered = True
+                test_session.add(u123)
+                await test_session.commit()
+
+        cb_viewer_card = DummyCallbackQuery(f"user_sevent_viewer_{sevent_id}", 123456, "testuser1", DummyMessage(123456, "testuser1"))
+        await handlers.process_user_sevent_viewer_detail(cb_viewer_card)
+
+        cb_sreg = DummyCallbackQuery(f"sreg_status_{sevent_id}_очно", 123456, "testuser1", DummyMessage(123456, "testuser1"))
+        sreg_state = DummyState()
+        await handlers.process_series_event_reg_status(cb_sreg, sreg_state)
+
+        from database.models import SeriesEventRegistration
+        async with async_session() as test_session:
+            sreg = (await test_session.execute(
+                select(SeriesEventRegistration).where(
+                    SeriesEventRegistration.user_id == 123456,
+                    SeriesEventRegistration.series_event_id == sevent_id
+                )
+            )).scalar_one_or_none()
+            assert sreg is not None
+            assert sreg.status == "очно"
+
+        # 25.4 Admin Export Series Registrations (Dual Excel Export & Counts)
+        cb_exp_list = DummyCallbackQuery(f"admin_series_export_{series_id}", 999, "ASaavedraA", DummyMessage(999, "ASaavedraA"))
+        await admin_handlers.process_admin_series_export(cb_exp_list)
+
+        cb_exp_sevent = DummyCallbackQuery(f"admin_export_sevent_{sevent_id}", 999, "ASaavedraA", DummyMessage(999, "ASaavedraA"))
+        await admin_handlers.process_admin_export_sevent(cb_exp_sevent)
+
+        print("Event Series Deep Integration test PASSED!")
 
 
 def main():

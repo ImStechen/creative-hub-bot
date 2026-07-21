@@ -38,7 +38,7 @@ def get_user_series_events_keyboard(events: list) -> InlineKeyboardMarkup:
         buttons.append([InlineKeyboardButton(text=f"{date_str}. {e.topic}", callback_data=f"user_sevent_{e.id}")])
     buttons.append([
         InlineKeyboardButton(text="Назад", callback_data="back_to_main"),
-        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        InlineKeyboardButton(text="🏠 На главную", callback_data="back_to_main")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -61,16 +61,46 @@ def get_cancel_feedback_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def get_events_list_keyboard(events: list, partners_count: int = 0) -> InlineKeyboardMarkup:
+def get_events_list_keyboard(events: list, partners_count: int = 0, series_events: list = None) -> InlineKeyboardMarkup:
     """
-    Генерирует инлайн-кнопки для списка доступных мероприятий.
+    Генерирует инлайн-кнопки для списка доступных мероприятий (включая события серий).
     """
     buttons = []
     for event in events:
         buttons.append([InlineKeyboardButton(text=event.title, callback_data=f"show_event_{event.id}")])
+
+    if series_events:
+        for sevent, series_title in series_events:
+            date_str = format_series_date(sevent.date)
+            btn_label = f"{date_str}. {series_title}: {sevent.topic}"
+            buttons.append([InlineKeyboardButton(text=btn_label, callback_data=f"user_sevent_viewer_{sevent.id}")])
     
     buttons.append([InlineKeyboardButton(text=f"Мероприятия партнеров ({partners_count})", callback_data="btn_partners_events")])
     buttons.append([InlineKeyboardButton(text="Назад", callback_data="back_to_main")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_series_event_viewer_keyboard(sevent_id: int, has_questions: bool = False) -> InlineKeyboardMarkup:
+    """
+    Генерирует кнопки зрительской регистрации и отбора на событие серии.
+    """
+    buttons = []
+    if has_questions:
+        buttons.append([InlineKeyboardButton(text="Подать заявку на участие в отборе", callback_data=f"user_sevent_{sevent_id}")])
+    buttons.extend([
+        [
+            InlineKeyboardButton(text="Буду очно", callback_data=f"sreg_status_{sevent_id}_очно"),
+            InlineKeyboardButton(text="Буду удаленно", callback_data=f"sreg_status_{sevent_id}_удаленно")
+        ],
+        [
+            InlineKeyboardButton(text="Пока думаю", callback_data=f"sreg_status_{sevent_id}_думаю"),
+            InlineKeyboardButton(text="Точно не пойду", callback_data=f"sreg_status_{sevent_id}_не пойду")
+        ],
+        [
+            InlineKeyboardButton(text="Назад", callback_data="btn_events_info"),
+            InlineKeyboardButton(text="🏠 На главную", callback_data="back_to_main")
+        ]
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -89,7 +119,7 @@ def get_event_detail_keyboard(event_id: int) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="Назад", callback_data="btn_events_info"),
-            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+            InlineKeyboardButton(text="🏠 На главную", callback_data="back_to_main")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -201,7 +231,7 @@ def get_partners_events_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="Назад", callback_data="btn_events_info"),
-            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+            InlineKeyboardButton(text="🏠 На главную", callback_data="back_to_main")
         ]
     ])
 
@@ -225,7 +255,7 @@ def get_archive_tags_keyboard(tags: list, unread_tags: set = None) -> InlineKeyb
         
     buttons.append([
         InlineKeyboardButton(text="Назад", callback_data="back_to_main"),
-        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        InlineKeyboardButton(text="🏠 На главную", callback_data="back_to_main")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -243,7 +273,7 @@ def get_archive_events_keyboard(events: list, unread_event_ids: set = None) -> I
         
     buttons.append([
         InlineKeyboardButton(text="Назад", callback_data="btn_archive"),
-        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        InlineKeyboardButton(text="🏠 На главную", callback_data="back_to_main")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
@@ -255,7 +285,7 @@ def get_archive_detail_keyboard(tag_idx: int) -> InlineKeyboardMarkup:
     buttons = [
         [
             InlineKeyboardButton(text="Назад", callback_data=f"arch_tag_{tag_idx}"),
-            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+            InlineKeyboardButton(text="🏠 На главную", callback_data="back_to_main")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)

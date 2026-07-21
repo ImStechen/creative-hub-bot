@@ -24,6 +24,7 @@ from keyboards import (
     get_raffle_detail_keyboard,
     get_partners_events_keyboard,
     get_user_series_events_keyboard,
+    get_series_event_viewer_keyboard,
     get_series_app_confirm_keyboard,
     get_registration_keyboard,
     get_agreement_keyboard,
@@ -138,24 +139,54 @@ async def show_main_page(message: Message, telegram_id: int, username: str | Non
     events_result = await session.execute(events_query)
     all_events = events_result.scalars().all()
 
-    recommended_events = []
+    items_with_dates = []
+
     for event in all_events:
         if is_event_hidden(event):
             continue
         event_tags = event.tags or []
         if any(tag in active_user_tags for tag in event_tags):
-            recommended_events.append(event)
-
-    text_lines = ["Мероприятия по вашим предпочтениям:\n"]
-    if not recommended_events:
-        text_lines.append("<i>Пока нет подходящих мероприятий по вашим тегам. Вы можете изменить их в настройках предпочтений.</i>")
-    else:
-        for event in recommended_events:
             title_html = f"<b>{event.title}</b>"
             if event.title_url:
                 title_html = f'<b><a href="{event.title_url}">{event.title}</a></b>'
             tags_str = " ".join([f"#{tag}" for tag in event.tags])
-            text_lines.append(f"<b>{config.format_display_date(event.date)}</b> {title_html}\n{tags_str}\n")
+            dt_obj = get_event_start_date(event.date)
+            block_text = f"<b>{config.format_display_date(event.date)}</b> {title_html}\n{tags_str}\n"
+            items_with_dates.append((dt_obj, block_text))
+
+    # Загружаем события из серий мероприятий
+    res_se = await session.execute(
+        select(SeriesEvent).where(SeriesEvent.is_deleted == 0)
+    )
+    all_series_events = res_se.scalars().all()
+
+    for sevent in all_series_events:
+        series = await session.get(EventSeries, sevent.series_id)
+        if not series:
+            continue
+        # Проверяем фильтрацию по тегам пользователя
+        se_tag = sevent.tag
+        if se_tag and se_tag not in active_user_tags and "#СерияМероприятий" not in active_user_tags:
+            continue
+
+        tag_list = ["#СерияМероприятий"]
+        if se_tag:
+            tag_list.append(f"#{se_tag}")
+        tags_str = " ".join(tag_list)
+
+        dt_obj = get_event_start_date(sevent.date)
+        date_fmt = config.format_series_date(sevent.date)
+        block_text = f"<b>{date_fmt}</b> <b>{series.title}</b>. {sevent.topic}\n{tags_str}\n"
+        items_with_dates.append((dt_obj, block_text))
+
+    items_with_dates.sort(key=lambda x: x[0])
+
+    text_lines = ["Мероприятия по вашим предпочтениям:\n"]
+    if not items_with_dates:
+        text_lines.append("<i>Пока нет подходящих мероприятий по вашим тегам. Вы можете изменить их в настройках предпочтений.</i>")
+    else:
+        for _, block in items_with_dates:
+            text_lines.append(block)
 
     text = "\n".join(text_lines)
     raffle_count = await get_active_raffles_count(session, user_tags)
@@ -542,6 +573,19 @@ async def process_events_info(callback: CallbackQuery, state: FSMContext):
             event_tags = e.tags or []
             if any(tag in active_user_tags for tag in event_tags):
                 active_events.append(e)
+
+        # События в рамках серий
+        res_se = await session.execute(select(SeriesEvent).where(SeriesEvent.is_deleted == 0))
+        all_series_events = res_se.scalars().all()
+        series_events_list = []
+        for sevent in all_series_events:
+            series = await session.get(EventSeries, sevent.series_id)
+            if not series:
+                continue
+            se_tag = sevent.tag
+            if se_tag and se_tag not in active_user_tags and "#СерияМероприятий" not in active_user_tags:
+                continue
+            series_events_list.append((sevent, series.title))
                 
         # Count actual partner events
         partners_query = select(PartnerEvent)
@@ -555,16 +599,152 @@ async def process_events_info(callback: CallbackQuery, state: FSMContext):
             if today <= end_date:
                 actual_partners_count += 1
         
-        if not active_events:
+        if not active_events and not series_events_list:
             await callback.message.answer(
                 "На данный момент нет запланированных мероприятий по вашим интересам.",
-                reply_markup=get_events_list_keyboard([], actual_partners_count)
+                reply_markup=get_events_list_keyboard([], actual_partners_count, [])
             )
         else:
             await callback.message.answer(
                 "Выберите интересующее мероприятие.",
-                reply_markup=get_events_list_keyboard(active_events, actual_partners_count)
+                reply_markup=get_events_list_keyboard(active_events, actual_partners_count, series_events_list)
             )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("user_sevent_viewer_"))
+async def process_user_sevent_viewer_detail(callback: CallbackQuery):
+    sevent_id = int(callback.data.split("_")[3])
+    async with async_session() as session:
+        sevent = await session.get(SeriesEvent, sevent_id)
+        if not sevent:
+            await callback.answer("Событие серии не найдено.")
+            return
+        series = await session.get(EventSeries, sevent.series_id)
+        if not series:
+            await callback.answer("Серия не найдена.")
+            return
+
+        date_str = config.format_series_date(sevent.date)
+        card_text = (
+            f"Серия: <b>{series.title}</b>\n\n"
+            f"{series.description or ''}\n\n"
+            f"Выбранное событие: <b>{sevent.topic}</b>\n\n"
+            f"Дата: {date_str}\n"
+            f"Время: {sevent.time}\n\n"
+            f"Зарегистрироваться как зритель 👇"
+        )
+
+        res_q = await session.execute(select(SeriesQuestion).where(SeriesQuestion.series_id == series.id))
+        questions = res_q.scalars().all()
+        has_q = len(questions) > 0
+        kb = get_series_event_viewer_keyboard(sevent.id, has_questions=has_q)
+
+        if series.image_id:
+            try:
+                await callback.message.answer_photo(
+                    photo=series.image_id,
+                    caption=card_text,
+                    reply_markup=kb,
+                    parse_mode="HTML"
+                )
+            except Exception:
+                await callback.message.answer(card_text, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
+        else:
+            await callback.message.answer(card_text, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("sreg_status_"))
+async def process_series_event_reg_status(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")
+    sevent_id = int(parts[2])
+    status = parts[3]
+    telegram_id = callback.from_user.id
+
+    from database.models import SeriesEventRegistration
+    async with async_session() as session:
+        user = await session.get(User, telegram_id)
+        
+        # Intercept event booking for non-registered users (only if status is "очно" or "удаленно")
+        if (not user or not user.is_registered) and status in ["очно", "удаленно"]:
+            await state.update_data(pending_sevent_id=sevent_id, pending_status=status)
+            await state.set_state(RegistrationStates.accept_agreement)
+            reg_text = (
+                "<b>Но сперва познакомимся!</b>\n\n"
+                "Чтобы попасть на наши мероприятия (очно и удалённо), нужно зарегистрироваться. "
+                "Можно каждый раз заполнять анкету на сайте Вышки, а можно — один раз авторизоваться в боте.\n\n"
+                "Авторизация откроет доступ к более тонкой настройке уведомлений и позволит записываться на события одной кнопкой.\n\n"
+                "Продолжая авторизацию, вы принимаете <a href=\"https://www.hse.ru/data_protection_regulation\">Положение об обработке персональных данных НИУ ВШЭ</a>."
+            )
+            await callback.message.answer(reg_text, reply_markup=get_agreement_keyboard(), parse_mode="HTML")
+            await callback.answer()
+            return
+
+        sevent = await session.get(SeriesEvent, sevent_id)
+        if not sevent:
+            await callback.answer("Событие не найдено.")
+            return
+        series = await session.get(EventSeries, sevent.series_id)
+
+        sreg_query = select(SeriesEventRegistration).where(
+            SeriesEventRegistration.user_id == telegram_id,
+            SeriesEventRegistration.series_event_id == sevent_id
+        )
+        sreg_result = await session.execute(sreg_query)
+        sreg = sreg_result.scalar_one_or_none()
+
+        current_date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        if status == "не пойду":
+            if sreg:
+                await session.delete(sreg)
+                await session.commit()
+        else:
+            if sreg:
+                sreg.status = status
+                sreg.created_at = current_date_str
+            else:
+                sreg = SeriesEventRegistration(
+                    user_id=telegram_id,
+                    series_event_id=sevent_id,
+                    status=status,
+                    created_at=current_date_str
+                )
+                session.add(sreg)
+            await session.commit()
+
+        series_title = series.title if series else "Серия"
+        topic_str = sevent.topic
+
+        if status == "очно":
+            confirmation_text = (
+                f"Успешная регистрация!\n"
+                f"Вы пойдете очно как зритель на событие <b>{topic_str}</b> серии <b>{series_title}</b>.\n\n"
+                f"<b>Дата:</b> {config.format_series_date(sevent.date)}\n"
+                f"<b>Время:</b> {sevent.time}\n"
+            )
+        elif status == "удаленно":
+            confirmation_text = (
+                f"Успешная регистрация!\n"
+                f"Вы будете удаленно смотреть событие <b>{topic_str}</b> серии <b>{series_title}</b>.\n\n"
+                f"<b>Дата:</b> {config.format_series_date(sevent.date)}\n"
+                f"<b>Время:</b> {sevent.time}\n"
+            )
+        elif status == "думаю":
+            confirmation_text = (
+                f"Понял, вы пока не уверены, сможете ли быть на событии <b>{topic_str}</b> серии <b>{series_title}</b>."
+            )
+        else:
+            confirmation_text = (
+                f"Понял, вы не пойдете на событие <b>{topic_str}</b> серии <b>{series_title}</b>."
+            )
+
+        await callback.message.answer(
+            confirmation_text,
+            reply_markup=get_after_registration_keyboard(),
+            parse_mode="HTML"
+        )
     await callback.answer()
 
 
@@ -1153,14 +1333,14 @@ async def process_feedback_start(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@router.callback_query(F.data == "cancel_feedback", FeedbackStates.waiting_for_message)
+@router.callback_query(F.data == "cancel_feedback")
 async def process_feedback_cancel(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     telegram_id = callback.from_user.id
     username = callback.from_user.username
     async with async_session() as session:
         await show_main_page(callback.message, telegram_id, username, session)
-    await callback.answer("Обратная связь отменена")
+    await callback.answer("Действие отменено")
 
 
 @router.message(FeedbackStates.waiting_for_message)

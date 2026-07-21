@@ -63,8 +63,10 @@ from admin_keyboards import (
     get_admin_series_actions_keyboard,
     get_questionnaire_loop_keyboard,
     get_series_events_select_keyboard,
+    get_series_event_tag_keyboard,
     get_winners_checkbox_keyboard,
     get_winners_confirm_keyboard,
+    get_winners_extra_text_keyboard,
     get_winners_dispatch_keyboard
 )
 
@@ -148,6 +150,7 @@ class AddSeriesEventForm(StatesGroup):
     date = State()
     time = State()
     extra_text = State()
+    tag = State()
 
 
 class SeriesQuestionnaireForm(StatesGroup):
@@ -2212,7 +2215,7 @@ async def send_post_mats_notifications(bot, event_id: int):
 
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     user_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="← К списку", callback_data="back_to_main")]
+        [InlineKeyboardButton(text="🏠 На главную", callback_data="back_to_main")]
     ])
 
     pm_trigger = "После мероприятия, когда появятся пост-материалы"
@@ -3387,21 +3390,61 @@ async def process_series_event_time(message: Message, state: FSMContext):
     )
 
 
+@router.callback_query(F.data == "back_sevent_extra_text", AddSeriesEventForm.tag)
+async def process_back_sevent_extra_text(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(AddSeriesEventForm.extra_text)
+    await callback.message.answer(
+        "4. Введите дополнительный текст при желании (сохраняется пользовательское форматирование):",
+        reply_markup=get_skip_keyboard("skip_series_extra_text", show_back=True, back_callback="back_sevent_time")
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data == "skip_series_extra_text", AddSeriesEventForm.extra_text)
 async def process_skip_series_extra_text(callback: CallbackQuery, state: FSMContext):
-    await save_series_event(callback.message, state, extra_text="")
+    await state.update_data(extra_text="")
+    await state.set_state(AddSeriesEventForm.tag)
+    await callback.message.answer(
+        "5. Выберите тематический тег для события серии:",
+        reply_markup=get_series_event_tag_keyboard(config.DEFAULT_TAGS)
+    )
     await callback.answer()
 
 
 @router.message(AddSeriesEventForm.extra_text)
 async def process_series_event_extra_text(message: Message, state: FSMContext):
     extra_text = message.html_text if message.html_text else (message.text or "")
-    await save_series_event(message, state, extra_text=extra_text)
+    await state.update_data(extra_text=extra_text)
+    await state.set_state(AddSeriesEventForm.tag)
+    await message.answer(
+        "5. Выберите тематический тег для события серии:",
+        reply_markup=get_series_event_tag_keyboard(config.DEFAULT_TAGS)
+    )
 
 
-async def save_series_event(message_or_msg, state: FSMContext, extra_text: str):
+@router.callback_query(F.data.startswith("admin_sevent_tag_"), AddSeriesEventForm.tag)
+async def process_series_event_tag_select(callback: CallbackQuery, state: FSMContext):
+    idx_str = callback.data.split("_")[3]
+    try:
+        idx = int(idx_str)
+        tag_name = config.DEFAULT_TAGS[idx]
+    except (ValueError, IndexError):
+        tag_name = idx_str
+
+    await save_series_event(callback.message, state, tag=tag_name)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "skip_series_event_tag", AddSeriesEventForm.tag)
+async def process_skip_series_event_tag(callback: CallbackQuery, state: FSMContext):
+    await save_series_event(callback.message, state, tag=None)
+    await callback.answer()
+
+
+async def save_series_event(message_or_msg, state: FSMContext, tag: str | None = None):
     data = await state.get_data()
     series_id = data["series_id"]
+    extra_text = data.get("extra_text", "")
 
     async with async_session() as session:
         new_event = SeriesEvent(
@@ -3410,16 +3453,71 @@ async def save_series_event(message_or_msg, state: FSMContext, extra_text: str):
             date=data["date"],
             time=data["time"],
             extra_text=extra_text,
+            tag=tag,
             is_deleted=0
         )
         session.add(new_event)
         await session.commit()
+        new_sevent_id = new_event.id
+
+    if getattr(message_or_msg, 'bot', None):
+        asyncio.create_task(send_series_event_creation_notifications(message_or_msg.bot, new_sevent_id))
 
     await state.clear()
     await message_or_msg.answer(
         "Событие серии успешно добавлено!",
         reply_markup=get_admin_series_actions_keyboard(series_id)
     )
+
+
+async def send_series_event_creation_notifications(bot, series_event_id: int):
+    async with async_session() as session:
+        sevent = await session.get(SeriesEvent, series_event_id)
+        if not sevent:
+            return
+        series = await session.get(EventSeries, sevent.series_id)
+        if not series:
+            return
+
+        res = await session.execute(select(User))
+        users = res.scalars().all()
+
+        date_fmt = config.format_series_date(sevent.date)
+        tag_name = sevent.tag
+        tag_line = f"#СерияМероприятий #{tag_name}" if tag_name else "#СерияМероприятий"
+
+        notif_text = (
+            f"Появилось новое событие серии: <b>{series.title}</b> — {sevent.topic}!\n\n"
+            f"📆 <b>Дата:</b> {date_fmt}\n"
+            f"⏳ <b>Время:</b> {sevent.time}\n\n"
+            f"{tag_line}"
+        )
+
+        from keyboards import InlineKeyboardMarkup, InlineKeyboardButton
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Подробнее о событии", callback_data=f"user_sevent_viewer_{sevent.id}")],
+            [InlineKeyboardButton(text="🏠 На главную", callback_data="back_to_main")]
+        ])
+
+        for user in users:
+            prefs = dict(user.notification_preferences or {})
+            if not prefs.get("Появилось мероприятие по избранной теме", False):
+                continue
+
+            user_tags = dict(user.tags_preferences or {})
+            active_tags = {t for t, val in user_tags.items() if val}
+
+            # Отправляем если подходят теги или тег серии
+            if tag_name and tag_name in active_tags or "#СерияМероприятий" in active_tags:
+                try:
+                    await bot.send_message(
+                        chat_id=user.telegram_id,
+                        text=notif_text,
+                        reply_markup=kb,
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
 
 
 # ----- Кнопка 3: Удалить событие в серии -----
@@ -3554,6 +3652,7 @@ async def process_admin_q_finish(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data.startswith("admin_series_export_"))
 async def process_admin_series_export(callback: CallbackQuery):
     series_id = int(callback.data.split("_")[3])
+    from database.models import SeriesEventRegistration
     async with async_session() as session:
         res = await session.execute(
             select(SeriesEvent).where(SeriesEvent.series_id == series_id)
@@ -3566,9 +3665,27 @@ async def process_admin_series_export(callback: CallbackQuery):
                 reply_markup=get_admin_export_type_keyboard()
             )
         else:
+            reg_counts = {}
+            for e in events:
+                v_res = await session.execute(
+                    select(func.count(SeriesEventRegistration.id)).where(
+                        SeriesEventRegistration.series_event_id == e.id,
+                        SeriesEventRegistration.status != "не пойду"
+                    )
+                )
+                viewers_cnt = v_res.scalar() or 0
+
+                a_res = await session.execute(
+                    select(func.count(SeriesApplication.id)).where(
+                        SeriesApplication.series_event_id == e.id
+                    )
+                )
+                apps_cnt = a_res.scalar() or 0
+                reg_counts[e.id] = (viewers_cnt, apps_cnt)
+
             await callback.message.answer(
-                "Выберите событие серии для выгрузки Excel-таблицы заявок:",
-                reply_markup=get_series_events_select_keyboard(events, "admin_export_sevent", series_id, back_callback="admin_export_registrations")
+                "Выберите событие серии для выгрузки Excel-таблиц (зрители / участники):",
+                reply_markup=get_series_events_select_keyboard(events, "admin_export_sevent", series_id, back_callback="admin_export_registrations", reg_counts=reg_counts)
             )
     await callback.answer()
 
@@ -3578,6 +3695,7 @@ async def process_admin_export_sevent(callback: CallbackQuery):
     event_id = int(callback.data.split("_")[3])
     import openpyxl
     import io
+    from database.models import SeriesEventRegistration
 
     async with async_session() as session:
         sevent = await session.get(SeriesEvent, event_id)
@@ -3585,55 +3703,106 @@ async def process_admin_export_sevent(callback: CallbackQuery):
             await callback.answer("Событие серии не найдено.")
             return
 
-        res = await session.execute(
+        # 1. Заявки участников
+        res_apps = await session.execute(
             select(SeriesApplication).where(SeriesApplication.series_event_id == event_id).order_by(SeriesApplication.created_at.asc())
         )
-        apps = res.scalars().all()
+        apps = res_apps.scalars().all()
 
-        if not apps:
+        # 2. Регистрации зрителей
+        res_viewers = await session.execute(
+            select(SeriesEventRegistration, User).join(User, SeriesEventRegistration.user_id == User.telegram_id).where(
+                SeriesEventRegistration.series_event_id == event_id,
+                SeriesEventRegistration.status != "не пойду"
+            ).order_by(SeriesEventRegistration.created_at.asc())
+        )
+        viewers_data = res_viewers.all()
+
+        if not apps and not viewers_data:
             await callback.message.answer(
-                f"На событие «{sevent.topic}» пока нет поданных заявок.",
+                f"На событие «{sevent.topic}» пока нет регистраций и заявок.",
                 reply_markup=get_admin_export_back_keyboard()
             )
             await callback.answer()
             return
 
-        # Динамически собираем все уникальные вопросы, встречающиеся в ответах пользователей
-        header_questions = []
-        for app in apps:
-            if isinstance(app.answers, dict):
-                for q_title in app.answers.keys():
-                    if q_title not in header_questions:
-                        header_questions.append(q_title)
+        # Таблица 1: Заявки участников (анкеты)
+        doc_apps = None
+        if apps:
+            header_questions = []
+            for app in apps:
+                if isinstance(app.answers, dict):
+                    for q_title in app.answers.keys():
+                        if q_title not in header_questions:
+                            header_questions.append(q_title)
 
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Заявки серии"
+            wb1 = openpyxl.Workbook()
+            ws1 = wb1.active
+            ws1.title = "Анкеты участников"
+            ws1.append(["Telegram ID", "Никнейм", "Дата и время подачи"] + header_questions)
 
-        # Заголовки столбцов
-        headers = ["Telegram ID", "Никнейм", "Дата и время подачи"] + header_questions
-        ws.append(headers)
+            for app in apps:
+                username_str = f"@{app.username}" if app.username else "нет юзернейма"
+                answers_dict = app.answers if isinstance(app.answers, dict) else {}
+                row = [app.user_id, username_str, app.created_at]
+                for q_title in header_questions:
+                    row.append(answers_dict.get(q_title, ""))
+                ws1.append(row)
 
-        for app in apps:
-            username_str = f"@{app.username}" if app.username else "нет юзернейма"
-            answers_dict = app.answers if isinstance(app.answers, dict) else {}
-            row = [app.user_id, username_str, app.created_at]
-            for q_title in header_questions:
-                row.append(answers_dict.get(q_title, ""))
-            ws.append(row)
+            stream1 = io.BytesIO()
+            wb1.save(stream1)
+            stream1.seek(0)
+            doc_apps = BufferedInputFile(stream1.read(), filename=f"Zayavki_uchastnikov_{sevent.topic}.xlsx")
 
-        stream = io.BytesIO()
-        wb.save(stream)
-        stream.seek(0)
+        # Таблица 2: Зрители
+        doc_viewers = None
+        if viewers_data:
+            wb2 = openpyxl.Workbook()
+            ws2 = wb2.active
+            ws2.title = "Зрители"
+            ws2.append(["Telegram ID", "ФИО", "Никнейм", "Email", "Телефон", "Статус", "Дата регистрации"])
 
-        filename = f"applications_series_event_{event_id}.xlsx"
-        input_file = BufferedInputFile(stream.read(), filename=filename)
+            for sreg, u in viewers_data:
+                username_str = f"@{u.username}" if u.username else "нет юзернейма"
+                ws2.append([
+                    u.telegram_id,
+                    u.full_name or "Не указано",
+                    username_str,
+                    u.email or "Не указано",
+                    u.phone or "Не указано",
+                    sreg.status,
+                    sreg.created_at
+                ])
 
-        await callback.message.answer_document(
-            document=input_file,
-            caption=f"Выгрузка заявок по событию «{sevent.topic}» ({len(apps)} шт.)",
-            reply_markup=get_admin_export_back_keyboard()
+            stream2 = io.BytesIO()
+            wb2.save(stream2)
+            stream2.seek(0)
+            doc_viewers = BufferedInputFile(stream2.read(), filename=f"Zriteli_{sevent.topic}.xlsx")
+
+        caption_msg = (
+            f"Выгрузка регистраций по событию «<b>{sevent.topic}</b>»:\n\n"
+            f"👥 <b>Зрителей:</b> {len(viewers_data)} чел.\n"
+            f"📝 <b>Участников (анкеты):</b> {len(apps)} чел."
         )
+
+        if doc_viewers:
+            await callback.message.answer_document(
+                document=doc_viewers,
+                caption=f"Таблица 1: Зрители на событие «{sevent.topic}» ({len(viewers_data)} чел.)"
+            )
+
+        if doc_apps:
+            await callback.message.answer_document(
+                document=doc_apps,
+                caption=f"Таблица 2: Заявки участников на событие «{sevent.topic}» ({len(apps)} чел.)"
+            )
+
+        await callback.message.answer(
+            caption_msg,
+            reply_markup=get_admin_export_back_keyboard(),
+            parse_mode="HTML"
+        )
+
     await callback.answer()
 
 
@@ -3893,7 +4062,41 @@ async def process_admin_winner_proceed(callback: CallbackQuery, state: FSMContex
 
         await callback.message.answer(
             preview_text,
-            reply_markup=get_cancel_keyboard(show_back=True, back_callback="admin_winner_back_to_confirm"),
+            reply_markup=get_winners_extra_text_keyboard(),
+            parse_mode="HTML"
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_winner_skip_extra", SelectWinnersForm.entering_extra_text)
+async def process_admin_winner_skip_extra(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(extra_text="")
+    data = await state.get_data()
+    series_event_id = data["series_event_id"]
+    selected_ids = data.get("selected_app_ids", [])
+
+    async with async_session() as session:
+        sevent = await session.get(SeriesEvent, series_event_id)
+        series = await session.get(EventSeries, sevent.series_id) if sevent else None
+
+        fio_sample = "{ФИО из анкеты}"
+        if selected_ids:
+            first_app = await session.get(SeriesApplication, selected_ids[0])
+            if first_app:
+                fio_sample = get_fio_from_answers(first_app.answers, first_app.username)
+
+        topic_str = sevent.topic if sevent else "Мероприятие"
+        series_title = series.title if series else "Серия"
+
+        preview_text = (
+            "Пользователь получит сообщение:\n\n"
+            f"<b>{fio_sample}, ваша заявка одобрена!</b>\n\n"
+            f"Поздравляем, жюри отобрало вашу заявку на участие в мероприятии: <b>{topic_str}</b> серии <b>{series_title}</b>."
+        )
+
+        await callback.message.answer(
+            preview_text,
+            reply_markup=get_winners_dispatch_keyboard(),
             parse_mode="HTML"
         )
     await callback.answer()
@@ -3946,7 +4149,7 @@ async def process_admin_winner_dispatch(callback: CallbackQuery, state: FSMConte
 
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     user_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="← К списку", callback_data="back_to_main")]
+        [InlineKeyboardButton(text="🏠 На главную", callback_data="back_to_main")]
     ])
 
     sent_count = 0
