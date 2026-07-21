@@ -11,7 +11,7 @@ def get_main_menu_keyboard(is_admin: bool, raffle_count: int, series_list: list 
     
     if series_list:
         for s in series_list:
-            buttons.append([InlineKeyboardButton(text=s.title, callback_data=f"user_series_{s.id}")])
+            buttons.append([InlineKeyboardButton(text=f"Подать заявку: {s.title}", callback_data=f"user_series_{s.id}")])
             
     buttons.extend([
         [InlineKeyboardButton(text="Настроить предпочтения", callback_data="btn_preferences")],
@@ -80,14 +80,11 @@ def get_events_list_keyboard(events: list, partners_count: int = 0, series_event
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_series_event_viewer_keyboard(sevent_id: int, has_questions: bool = False) -> InlineKeyboardMarkup:
+def get_series_event_viewer_keyboard(sevent_id: int) -> InlineKeyboardMarkup:
     """
-    Генерирует кнопки зрительской регистрации и отбора на событие серии.
+    Генерирует кнопки зрительской регистрации на событие серии.
     """
-    buttons = []
-    if has_questions:
-        buttons.append([InlineKeyboardButton(text="Подать заявку на участие в отборе", callback_data=f"user_sevent_{sevent_id}")])
-    buttons.extend([
+    buttons = [
         [
             InlineKeyboardButton(text="Буду очно", callback_data=f"sreg_status_{sevent_id}_очно"),
             InlineKeyboardButton(text="Буду удаленно", callback_data=f"sreg_status_{sevent_id}_удаленно")
@@ -100,7 +97,7 @@ def get_series_event_viewer_keyboard(sevent_id: int, has_questions: bool = False
             InlineKeyboardButton(text="Назад", callback_data="btn_events_info"),
             InlineKeyboardButton(text="🏠 На главную", callback_data="back_to_main")
         ]
-    ])
+    ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
