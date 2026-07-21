@@ -673,7 +673,6 @@ def get_admin_series_list_keyboard(series_list: list) -> InlineKeyboardMarkup:
 
 def get_admin_series_actions_keyboard(series_id: int) -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text="Выгрузить список регистраций", callback_data=f"admin_series_export_{series_id}")],
         [InlineKeyboardButton(text="Добавить событие", callback_data=f"admin_series_add_event_{series_id}")],
         [InlineKeyboardButton(text="Удалить событие", callback_data=f"admin_series_del_event_list_{series_id}")],
         [InlineKeyboardButton(text="Редактировать текст-описание серии", callback_data=f"admin_series_edit_info_{series_id}")],

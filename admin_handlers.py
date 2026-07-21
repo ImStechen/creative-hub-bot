@@ -3593,7 +3593,7 @@ async def process_admin_export_sevent(callback: CallbackQuery):
         if not apps:
             await callback.message.answer(
                 f"На событие «{sevent.topic}» пока нет поданных заявок.",
-                reply_markup=get_admin_series_actions_keyboard(sevent.series_id)
+                reply_markup=get_admin_export_back_keyboard()
             )
             await callback.answer()
             return
@@ -3632,7 +3632,7 @@ async def process_admin_export_sevent(callback: CallbackQuery):
         await callback.message.answer_document(
             document=input_file,
             caption=f"Выгрузка заявок по событию «{sevent.topic}» ({len(apps)} шт.)",
-            reply_markup=get_admin_series_actions_keyboard(sevent.series_id)
+            reply_markup=get_admin_export_back_keyboard()
         )
     await callback.answer()
 
@@ -3867,6 +3867,7 @@ async def process_admin_winner_back_to_confirm(callback: CallbackQuery, state: F
 async def process_admin_winner_proceed(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     series_event_id = data["series_event_id"]
+    selected_ids = data.get("selected_app_ids", [])
 
     await state.set_state(SelectWinnersForm.entering_extra_text)
 
@@ -3874,14 +3875,20 @@ async def process_admin_winner_proceed(callback: CallbackQuery, state: FSMContex
         sevent = await session.get(SeriesEvent, series_event_id)
         series = await session.get(EventSeries, sevent.series_id) if sevent else None
 
+        fio_sample = "{ФИО из анкеты}"
+        if selected_ids:
+            first_app = await session.get(SeriesApplication, selected_ids[0])
+            if first_app:
+                fio_sample = get_fio_from_answers(first_app.answers, first_app.username)
+
         topic_str = sevent.topic if sevent else "Мероприятие"
         series_title = series.title if series else "Серия"
 
         preview_text = (
             "Пользователь получит сообщение:\n\n"
-            "<b>{ФИО из анкеты}, ваша заявка одобрена!</b>\n\n"
+            f"<b>{fio_sample}, ваша заявка одобрена!</b>\n\n"
             f"Поздравляем, жюри отобрало вашу заявку на участие в мероприятии: <b>{topic_str}</b> серии <b>{series_title}</b>.\n\n"
-            "<b>Хотите что-то добавить? Введите текст ниже.</b>"
+            "Хотите что-то добавить? Введите текст ниже."
         )
 
         await callback.message.answer(
@@ -3899,17 +3906,24 @@ async def process_admin_winner_extra_text(message: Message, state: FSMContext):
 
     data = await state.get_data()
     series_event_id = data["series_event_id"]
+    selected_ids = data.get("selected_app_ids", [])
 
     async with async_session() as session:
         sevent = await session.get(SeriesEvent, series_event_id)
         series = await session.get(EventSeries, sevent.series_id) if sevent else None
+
+        fio_sample = "{ФИО из анкеты}"
+        if selected_ids:
+            first_app = await session.get(SeriesApplication, selected_ids[0])
+            if first_app:
+                fio_sample = get_fio_from_answers(first_app.answers, first_app.username)
 
         topic_str = sevent.topic if sevent else "Мероприятие"
         series_title = series.title if series else "Серия"
 
         preview_text = (
             "Пользователь получит сообщение:\n\n"
-            "<b>{ФИО из анкеты}, ваша заявка одобрена!</b>\n\n"
+            f"<b>{fio_sample}, ваша заявка одобрена!</b>\n\n"
             f"Поздравляем, жюри отобрало вашу заявку на участие в мероприятии: <b>{topic_str}</b> серии <b>{series_title}</b>.\n\n"
             f"{extra_text}"
         )
