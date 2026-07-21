@@ -221,10 +221,12 @@ class SeriesEvent(Base):
     date = Column(String, nullable=False) # Дата проведения
     time = Column(String, nullable=False) # Время проведения
     extra_text = Column(Text, nullable=True) # Дополнительный текст
+    tag = Column(String, nullable=True) # Тег из системы тегов
     is_deleted = Column(Integer, nullable=False, default=0) # 0 = активен, 1 = мягко удален
 
     series = relationship("EventSeries", back_populates="events")
     applications = relationship("SeriesApplication", back_populates="event", cascade="all, delete-orphan")
+    guest_registrations = relationship("SeriesEventRegistration", back_populates="event", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<SeriesEvent id={self.id} topic={self.topic}>"
@@ -244,6 +246,25 @@ class SeriesApplication(Base):
 
     def __repr__(self):
         return f"<SeriesApplication id={self.id} user_id={self.user_id}>"
+
+
+class SeriesEventRegistration(Base):
+    """
+    Зрительские (гостевые) регистрации на конкретное событие серии: очно / удаленно / думаю / не пойду.
+    """
+    __tablename__ = 'series_event_registrations'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    series_event_id = Column(Integer, ForeignKey('series_events.id', ondelete="CASCADE"), nullable=False)
+    user_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete="CASCADE"), nullable=False)
+    status = Column(String, nullable=False) # очно / удаленно / думаю / не пойду
+    created_at = Column(String, nullable=False) # YYYY-MM-DD HH:MM:SS
+
+    event = relationship("SeriesEvent", back_populates="guest_registrations")
+
+    def __repr__(self):
+        return f"<SeriesEventRegistration id={self.id} series_event_id={self.series_event_id} user_id={self.user_id} status={self.status}>"
+
 
 
 
