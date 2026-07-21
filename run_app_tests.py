@@ -1274,7 +1274,9 @@ async def test_suite():
         assert len(user_s_msg.sent_messages) > 0
         caption_text = user_s_msg.sent_messages[-1][0]
         assert "ДВЕРИ: Открытое ревью работ" in caption_text
-        assert "24.09.2026. Иллюстрация" in caption_text
+        assert "24 сентября. Иллюстрация" in caption_text
+        assert "Время: 18:30-21:00" in caption_text
+        assert "Чтобы подать заявку на участие в мероприятиях серии, выберите интересующее событие 👇" in caption_text
 
         # Start questionnaire FSM
         user_q_state = DummyState()
@@ -1318,6 +1320,87 @@ async def test_suite():
         await admin_handlers.process_admin_export_sevent(cb_export_se)
         
         print("Event Series & Dynamic Questionnaire flow test PASSED!")
+
+        # ----------------------------------------------------
+        # 23. Winner Selection & Approval Notifications Flow
+        # ----------------------------------------------------
+        print("Testing Winner Selection & Approval Notifications flow...")
+
+        # 23.1 Restore sevent_id to active status for winner selection testing
+        async with async_session() as test_session:
+            se = await test_session.get(SeriesEvent, sevent_id)
+            se.is_deleted = 0
+            test_session.add(se)
+            await test_session.commit()
+
+        # 23.2 Admin opens winner selection for series
+        cb_win_s = DummyCallbackQuery(f"admin_series_winners_{series_id}", 999, "ASaavedraA", DummyMessage(999, "ASaavedraA"))
+        await admin_handlers.process_admin_series_winners(cb_win_s, DummyState())
+
+        # 23.3 Admin selects event
+        win_state = DummyState()
+        cb_win_ev = DummyCallbackQuery(f"admin_winner_sevent_{sevent_id}", 999, "ASaavedraA", DummyMessage(999, "ASaavedraA"))
+        await admin_handlers.process_admin_winner_sevent(cb_win_ev, win_state)
+
+        # 23.4 Toggle applicant checkbox
+        async with async_session() as test_session:
+            app_rec = (await test_session.execute(select(SeriesApplication).where(SeriesApplication.series_event_id == sevent_id))).scalars().first()
+            target_app_id = app_rec.id
+
+        cb_toggle = DummyCallbackQuery(f"admin_toggle_winner_{target_app_id}", 999, "ASaavedraA", DummyMessage(999, "ASaavedraA"))
+        await admin_handlers.process_admin_toggle_winner(cb_toggle, win_state)
+
+        win_data = await win_state.get_data()
+        assert target_app_id in win_data["selected_app_ids"]
+
+        # 23.5 Save selection & verify review summary text
+        win_save_msg = DummyMessage(999, "ASaavedraA")
+        cb_win_save = DummyCallbackQuery("admin_winner_save_selection", 999, "ASaavedraA", win_save_msg)
+        await admin_handlers.process_admin_winner_save_selection(cb_win_save, win_state)
+
+        assert win_state.state == admin_handlers.SelectWinnersForm.confirming
+        summary_text = win_save_msg.sent_messages[-1][0]
+        assert "Проверьте список пользователей, которые получат сообщение о прохождении отбора" in summary_text
+        assert "john_doe" in summary_text
+        assert "Ссылка на работы" in summary_text
+
+        # 23.6 Proceed & add extra text
+        cb_win_proceed = DummyCallbackQuery("admin_winner_proceed", 999, "ASaavedraA", DummyMessage(999, "ASaavedraA"))
+        await admin_handlers.process_admin_winner_proceed(cb_win_proceed, win_state)
+
+        assert win_state.state == admin_handlers.SelectWinnersForm.entering_extra_text
+
+        extra_msg = DummyMessage(999, "ASaavedraA", "Ждем вас 24 сентября с распечатанными материалами!")
+        await admin_handlers.process_admin_winner_extra_text(extra_msg, win_state)
+
+        # 23.7 Dispatch notifications
+        cb_win_dispatch = DummyCallbackQuery("admin_winner_dispatch", 999, "ASaavedraA", DummyMessage(999, "ASaavedraA"))
+        await admin_handlers.process_admin_winner_dispatch(cb_win_dispatch, win_state)
+
+        print("Winner Selection & Approval Notifications flow test PASSED!")
+
+        # ----------------------------------------------------
+        # 24. Post-Materials Notifications Flow
+        # ----------------------------------------------------
+        print("Testing Post-Materials Notifications flow...")
+        
+        # Populate post-materials on first event in DB
+        async with async_session() as test_session:
+            ev = (await test_session.execute(select(Event))).scalars().first()
+            ev.photos_url = "https://photos.com/album1"
+            test_session.add(ev)
+            await test_session.commit()
+            target_ev_id = ev.id
+
+        dummy_bot = DummyBot()
+        await admin_handlers.send_post_mats_notifications(dummy_bot, target_ev_id)
+
+        # Verify notifications sent
+        assert len(dummy_bot.sent_messages) > 0
+        pm_msg = dummy_bot.sent_messages[0][1]
+        assert "Появились пост-материалы по мероприятию" in pm_msg
+
+        print("Post-Materials Notifications flow test PASSED!")
 
 
 

@@ -62,7 +62,10 @@ from admin_keyboards import (
     get_admin_series_list_keyboard,
     get_admin_series_actions_keyboard,
     get_questionnaire_loop_keyboard,
-    get_series_events_select_keyboard
+    get_series_events_select_keyboard,
+    get_winners_checkbox_keyboard,
+    get_winners_confirm_keyboard,
+    get_winners_dispatch_keyboard
 )
 
 router = Router()
@@ -150,6 +153,14 @@ class AddSeriesEventForm(StatesGroup):
 class SeriesQuestionnaireForm(StatesGroup):
     series_id = State()
     asking_question = State()
+
+
+class SelectWinnersForm(StatesGroup):
+    series_id = State()
+    series_event_id = State()
+    selected_app_ids = State() # list/set of app_ids
+    confirming = State()
+    entering_extra_text = State()
 
 
 
@@ -2144,6 +2155,113 @@ async def process_finish_pm_adding_btn(callback: CallbackQuery, state: FSMContex
     await callback.answer()
 
 
+async def send_post_mats_notifications(bot, event_id: int):
+    from database.db import async_session
+    from database.models import User, Registration, Event
+    from sqlalchemy import select
+    import logging
+    logger = logging.getLogger("post_mats_notifications")
+
+    async with async_session() as session:
+        event = await session.get(Event, event_id)
+        if not event:
+            return
+
+        # Проверяем, есть ли действительно добавленные пост-материалы
+        if not any([event.photos_url, event.stream_record_url, event.article_url, event.presentations_url, event.other_materials_url]):
+            return
+
+        stmt_users = select(User)
+        res_users = await session.execute(stmt_users)
+        users = res_users.scalars().all()
+
+        stmt_regs = select(Registration.user_id).where(Registration.event_id == event_id)
+        res_regs = await session.execute(stmt_regs)
+        registered_user_ids = set(res_regs.scalars().all())
+
+        title = event.title
+        title_url = event.title_url
+        tags = event.tags or []
+        images = event.images or []
+
+        links = []
+        if event.photos_url:
+            if event.photographer_name:
+                if event.photographer_url:
+                    photo_str = f'📸 Фотографии с мероприятия: <a href="{event.photos_url}">открыть</a> (Фотограф: <a href="{event.photographer_url}">{event.photographer_name}</a>)'
+                else:
+                    photo_str = f'📸 Фотографии с мероприятия: <a href="{event.photos_url}">открыть</a> (Фотограф: {event.photographer_name})'
+            else:
+                photo_str = f'📸 Фотографии с мероприятия: <a href="{event.photos_url}">открыть</a>'
+            links.append(photo_str)
+        if event.stream_record_url:
+            links.append(f'▶️ Запись трансляции: <a href="{event.stream_record_url}">открыть</a>')
+        if event.article_url:
+            links.append(f'✍️ Статья-конспект: <a href="{event.article_url}">открыть</a>')
+        if event.presentations_url:
+            links.append(f'🖼 Презентации спикеров: <a href="{event.presentations_url}">открыть</a>')
+        if event.other_materials_url:
+            links.append(f'📎 Другие материалы: <a href="{event.other_materials_url}">открыть</a>')
+
+        mats_str = "\n".join(links)
+        tags_str = " ".join([f"#{tag}" for tag in tags])
+
+        title_html = f"<b>{title}</b>"
+        if title_url:
+            title_html = f'<b><a href="{title_url}">{title}</a></b>'
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    user_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="← К списку", callback_data="back_to_main")]
+    ])
+
+    pm_trigger = "После мероприятия, когда появятся пост-материалы"
+
+    for user in users:
+        user_notifications = user.notification_preferences or {}
+        if user_notifications.get(pm_trigger, True) is False:
+            continue
+
+        is_registered = user.telegram_id in registered_user_ids
+        user_tags = user.tags_preferences or {}
+        has_matching_tag = any(user_tags.get(t) for t in tags)
+
+        if is_registered:
+            header_text = "Появились пост-материалы по мероприятию, на которое вы регистрировались!\n\n"
+        elif has_matching_tag:
+            header_text = "Появились пост-материалы по мероприятию из ваших предпочтений!\n\n"
+        else:
+            continue
+
+        notification_text = (
+            f"{header_text}"
+            f"{title_html}\n\n"
+            f"{mats_str}\n\n"
+            f"{tags_str}"
+        )
+
+        try:
+            if images and len(images) > 0:
+                await bot.send_photo(
+                    chat_id=user.telegram_id,
+                    photo=images[0],
+                    caption=notification_text,
+                    parse_mode="HTML",
+                    reply_markup=user_kb
+                )
+            else:
+                await bot.send_message(
+                    chat_id=user.telegram_id,
+                    text=notification_text,
+                    parse_mode="HTML",
+                    reply_markup=user_kb,
+                    disable_web_page_preview=True
+                )
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            logger.error(f"Failed to send post-mats notification to user {user.telegram_id}: {e}")
+
+
 async def save_post_mats_to_db(message: Message, state: FSMContext):
     data = await state.get_data()
     await state.clear()
@@ -2183,6 +2301,10 @@ async def save_post_mats_to_db(message: Message, state: FSMContext):
                 
             mats_str = "\n".join(links) if links else "Материалы не добавлены."
             
+            bot = getattr(message, 'bot', None)
+            if bot and links:
+                asyncio.create_task(send_post_mats_notifications(bot, event_id))
+
             await message.answer(
                 f"Пост-материалы добавлены!\n\n{mats_str}",
                 reply_markup=get_after_post_mats_saved_keyboard(),
@@ -2485,9 +2607,12 @@ async def process_admin_export_registrations(callback: CallbackQuery):
             await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
             return
         
+        res = await session.execute(select(EventSeries))
+        series_list = res.scalars().all()
+
         await callback.message.answer(
             "Выберите категорию мероприятий для выгрузки списка регистраций:",
-            reply_markup=get_admin_export_type_keyboard()
+            reply_markup=get_admin_export_type_keyboard(series_list)
         )
     await callback.answer()
 
@@ -3045,7 +3170,7 @@ async def process_admin_create_series(callback: CallbackQuery, state: FSMContext
     await state.set_state(CreateSeriesForm.title)
     await callback.message.answer(
         "Вопрос 1: Введите название серии (например, «ДВЕРИ: Открытое ревью работ»)",
-        reply_markup=get_cancel_keyboard(show_back=False)
+        reply_markup=get_cancel_keyboard(show_back=True, back_callback="admin_edit_series")
     )
     await callback.answer()
 
@@ -3057,7 +3182,20 @@ async def process_admin_series_edit_info(callback: CallbackQuery, state: FSMCont
     await state.update_data(editing_series_id=series_id)
     await callback.message.answer(
         "Вопрос 1: Введите новое название серии",
-        reply_markup=get_cancel_keyboard(show_back=False)
+        reply_markup=get_cancel_keyboard(show_back=True, back_callback=f"admin_select_series_{series_id}")
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "back_series_title", CreateSeriesForm.description)
+async def process_back_series_title(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    editing_series_id = data.get("editing_series_id")
+    back_cb = f"admin_select_series_{editing_series_id}" if editing_series_id else "admin_edit_series"
+    await state.set_state(CreateSeriesForm.title)
+    await callback.message.answer(
+        "Вопрос 1: Введите название серии",
+        reply_markup=get_cancel_keyboard(show_back=True, back_callback=back_cb)
     )
     await callback.answer()
 
@@ -3066,27 +3204,37 @@ async def process_admin_series_edit_info(callback: CallbackQuery, state: FSMCont
 async def process_create_series_title(message: Message, state: FSMContext):
     title = message.text.strip() if message.text else ""
     if not title:
-        await message.answer("Пожалуйста, введите текстовое название серии:", reply_markup=get_cancel_keyboard(show_back=False))
+        await message.answer("Пожалуйста, введите текстовое название серии:", reply_markup=get_cancel_keyboard(show_back=True, back_callback="admin_edit_series"))
         return
     await state.update_data(title=title)
     await state.set_state(CreateSeriesForm.description)
     await message.answer(
         "Вопрос 2: Введите описание серии (сохраняется форматирование, полученное от вас)",
-        reply_markup=get_cancel_keyboard(show_back=False)
+        reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_series_title")
     )
+
+
+@router.callback_query(F.data == "back_series_desc", CreateSeriesForm.image)
+async def process_back_series_desc(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(CreateSeriesForm.description)
+    await callback.message.answer(
+        "Вопрос 2: Введите описание серии (сохраняется форматирование, полученное от вас)",
+        reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_series_title")
+    )
+    await callback.answer()
 
 
 @router.message(CreateSeriesForm.description)
 async def process_create_series_description(message: Message, state: FSMContext):
     desc = message.html_text if message.html_text else message.text
     if not desc:
-        await message.answer("Пожалуйста, введите текстовое описание серии:", reply_markup=get_cancel_keyboard(show_back=False))
+        await message.answer("Пожалуйста, введите текстовое описание серии:", reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_series_title"))
         return
     await state.update_data(description=desc)
     await state.set_state(CreateSeriesForm.image)
     await message.answer(
         "Вопрос 3: Пришлите картинку-афишу серии файлом (без сжатия) или обычной фотографией",
-        reply_markup=get_cancel_keyboard(show_back=False)
+        reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_series_desc")
     )
 
 
@@ -3099,7 +3247,7 @@ async def process_create_series_image(message: Message, state: FSMContext):
         image_id = message.document.file_id
 
     if not image_id:
-        await message.answer("Пожалуйста, пришлите графический файл или фото:", reply_markup=get_cancel_keyboard(show_back=False))
+        await message.answer("Пожалуйста, пришлите графический файл или фото:", reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_series_desc"))
         return
 
     data = await state.get_data()
@@ -3158,50 +3306,84 @@ async def process_admin_series_add_event(callback: CallbackQuery, state: FSMCont
     await state.update_data(series_id=series_id)
     await callback.message.answer(
         "1. Укажите тематику (название события в серии, например: «Иллюстрация»):",
-        reply_markup=get_cancel_keyboard(show_back=False)
+        reply_markup=get_cancel_keyboard(show_back=True, back_callback=f"admin_select_series_{series_id}")
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "back_sevent_topic", AddSeriesEventForm.date)
+async def process_back_sevent_topic(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    series_id = data["series_id"]
+    await state.set_state(AddSeriesEventForm.topic)
+    await callback.message.answer(
+        "1. Укажите тематику (название события в серии, например: «Иллюстрация»):",
+        reply_markup=get_cancel_keyboard(show_back=True, back_callback=f"admin_select_series_{series_id}")
     )
     await callback.answer()
 
 
 @router.message(AddSeriesEventForm.topic)
 async def process_series_event_topic(message: Message, state: FSMContext):
+    data = await state.get_data()
+    series_id = data["series_id"]
     topic = message.text.strip() if message.text else ""
     if not topic:
-        await message.answer("Пожалуйста, введите тематику события:", reply_markup=get_cancel_keyboard(show_back=False))
+        await message.answer("Пожалуйста, введите тематику события:", reply_markup=get_cancel_keyboard(show_back=True, back_callback=f"admin_select_series_{series_id}"))
         return
     await state.update_data(topic=topic)
     await state.set_state(AddSeriesEventForm.date)
     await message.answer(
         "2. Укажите дату события в формате ДД.ММ.ГГГГ или ДД.ММ.ГГГГ-ДД.ММ.ГГГГ:",
-        reply_markup=get_cancel_keyboard(show_back=False)
+        reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_sevent_topic")
     )
+
+
+@router.callback_query(F.data == "back_sevent_date", AddSeriesEventForm.time)
+async def process_back_sevent_date(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(AddSeriesEventForm.date)
+    await callback.message.answer(
+        "2. Укажите дату события в формате ДД.ММ.ГГГГ или ДД.ММ.ГГГГ-ДД.ММ.ГГГГ:",
+        reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_sevent_topic")
+    )
+    await callback.answer()
 
 
 @router.message(AddSeriesEventForm.date)
 async def process_series_event_date(message: Message, state: FSMContext):
     date_str = message.text.strip() if message.text else ""
     if not date_str:
-        await message.answer("Пожалуйста, укажите дату события:", reply_markup=get_cancel_keyboard(show_back=False))
+        await message.answer("Пожалуйста, укажите дату события:", reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_sevent_topic"))
         return
     await state.update_data(date=date_str)
     await state.set_state(AddSeriesEventForm.time)
     await message.answer(
         "3. Введите время события в формате ЧЧ:ММ или ЧЧ:ММ-ЧЧ:ММ:",
-        reply_markup=get_cancel_keyboard(show_back=False)
+        reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_sevent_date")
     )
+
+
+@router.callback_query(F.data == "back_sevent_time", AddSeriesEventForm.extra_text)
+async def process_back_sevent_time(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(AddSeriesEventForm.time)
+    await callback.message.answer(
+        "3. Введите время события в формате ЧЧ:ММ или ЧЧ:ММ-ЧЧ:ММ:",
+        reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_sevent_date")
+    )
+    await callback.answer()
 
 
 @router.message(AddSeriesEventForm.time)
 async def process_series_event_time(message: Message, state: FSMContext):
     time_str = message.text.strip() if message.text else ""
     if not time_str:
-        await message.answer("Пожалуйста, введите время события:", reply_markup=get_cancel_keyboard(show_back=False))
+        await message.answer("Пожалуйста, введите время события:", reply_markup=get_cancel_keyboard(show_back=True, back_callback="back_sevent_date"))
         return
     await state.update_data(time=time_str)
     await state.set_state(AddSeriesEventForm.extra_text)
     await message.answer(
         "4. Введите дополнительный текст при желании (сохраняется пользовательское форматирование):",
-        reply_markup=get_skip_keyboard("skip_series_extra_text")
+        reply_markup=get_skip_keyboard("skip_series_extra_text", show_back=True, back_callback="back_sevent_time")
     )
 
 
@@ -3381,12 +3563,12 @@ async def process_admin_series_export(callback: CallbackQuery):
         if not events:
             await callback.message.answer(
                 "В этой серии пока нет событий для выгрузки заявок.",
-                reply_markup=get_admin_series_actions_keyboard(series_id)
+                reply_markup=get_admin_export_type_keyboard()
             )
         else:
             await callback.message.answer(
                 "Выберите событие серии для выгрузки Excel-таблицы заявок:",
-                reply_markup=get_series_events_select_keyboard(events, "admin_export_sevent", series_id)
+                reply_markup=get_series_events_select_keyboard(events, "admin_export_sevent", series_id, back_callback="admin_export_registrations")
             )
     await callback.answer()
 
@@ -3453,6 +3635,345 @@ async def process_admin_export_sevent(callback: CallbackQuery):
             reply_markup=get_admin_series_actions_keyboard(sevent.series_id)
         )
     await callback.answer()
+
+
+# ----- ОТОБРАТЬ ПОБЕДИТЕЛЕЙ -----
+
+def get_fio_from_answers(answers: dict, username: str = None) -> str:
+    if isinstance(answers, dict):
+        for q, a in answers.items():
+            if any(k in q.lower() for k in ["фио", "имя", "фамилия"]):
+                return str(a).strip()
+        first_val = next(iter(answers.values()), None)
+        if first_val and len(str(first_val)) < 50:
+            return str(first_val).strip()
+    return f"@{username}" if username else "Участник"
+
+
+def get_work_link_from_answers(answers: dict) -> str | None:
+    if isinstance(answers, dict):
+        for q, a in answers.items():
+            a_str = str(a).strip()
+            if any(k in q.lower() for k in ["портфолио", "работы", "работа", "ссылка", "диск"]):
+                return a_str
+            if a_str.startswith("http://") or a_str.startswith("https://"):
+                return a_str
+    return None
+
+
+@router.callback_query(F.data.startswith("admin_series_winners_"))
+async def process_admin_series_winners(callback: CallbackQuery, state: FSMContext):
+    series_id = int(callback.data.split("_")[3])
+    async with async_session() as session:
+        res = await session.execute(
+            select(SeriesEvent).where(SeriesEvent.series_id == series_id, SeriesEvent.is_deleted == 0)
+        )
+        events = res.scalars().all()
+
+        if not events:
+            await callback.message.answer(
+                "В этой серии пока нет активных событий для отбора победителей.",
+                reply_markup=get_admin_series_actions_keyboard(series_id)
+            )
+        else:
+            await callback.message.answer(
+                "Выберите событие серии для отбора участников:",
+                reply_markup=get_series_events_select_keyboard(events, "admin_winner_sevent", series_id)
+            )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_winner_sevent_"))
+async def process_admin_winner_sevent(callback: CallbackQuery, state: FSMContext):
+    event_id = int(callback.data.split("_")[3])
+    async with async_session() as session:
+        sevent = await session.get(SeriesEvent, event_id)
+        if not sevent:
+            await callback.answer("Событие серии не найдено.")
+            return
+
+        res = await session.execute(
+            select(SeriesApplication).where(SeriesApplication.series_event_id == event_id).order_by(SeriesApplication.created_at.asc())
+        )
+        apps = res.scalars().all()
+
+        if not apps:
+            await callback.message.answer(
+                f"На событие «{sevent.topic}» пока нет поданных заявок.",
+                reply_markup=get_admin_series_actions_keyboard(sevent.series_id)
+            )
+            await callback.answer()
+            return
+
+        selected_ids = set()
+        await state.set_state(SelectWinnersForm.selected_app_ids)
+        await state.update_data(
+            series_id=sevent.series_id,
+            series_event_id=event_id,
+            selected_app_ids=list(selected_ids)
+        )
+
+        apps_with_names = []
+        for app in apps:
+            fio = get_fio_from_answers(app.answers, app.username)
+            username_part = f"@{app.username}" if app.username else f"id:{app.user_id}"
+            display_name = f"{username_part} ({fio})"
+            apps_with_names.append((app.id, display_name))
+
+        await callback.message.answer(
+            "Прокликайте пользователей, которые получат сообщение о прохождении отбора:",
+            reply_markup=get_winners_checkbox_keyboard(apps_with_names, selected_ids, sevent.series_id)
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin_toggle_winner_"), SelectWinnersForm.selected_app_ids)
+async def process_admin_toggle_winner(callback: CallbackQuery, state: FSMContext):
+    app_id = int(callback.data.split("_")[3])
+    data = await state.get_data()
+    selected_ids = set(data.get("selected_app_ids", []))
+
+    if app_id in selected_ids:
+        selected_ids.remove(app_id)
+    else:
+        selected_ids.add(app_id)
+
+    await state.update_data(selected_app_ids=list(selected_ids))
+
+    series_event_id = data["series_event_id"]
+    series_id = data["series_id"]
+
+    async with async_session() as session:
+        res = await session.execute(
+            select(SeriesApplication).where(SeriesApplication.series_event_id == series_event_id).order_by(SeriesApplication.created_at.asc())
+        )
+        apps = res.scalars().all()
+
+        apps_with_names = []
+        for app in apps:
+            fio = get_fio_from_answers(app.answers, app.username)
+            username_part = f"@{app.username}" if app.username else f"id:{app.user_id}"
+            display_name = f"{username_part} ({fio})"
+            apps_with_names.append((app.id, display_name))
+
+        try:
+            await callback.message.edit_reply_markup(
+                reply_markup=get_winners_checkbox_keyboard(apps_with_names, selected_ids, series_id)
+            )
+        except Exception:
+            pass
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_winner_back_to_checkboxes")
+async def process_admin_winner_back_to_checkboxes(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    selected_ids = set(data.get("selected_app_ids", []))
+    series_event_id = data["series_event_id"]
+    series_id = data["series_id"]
+
+    await state.set_state(SelectWinnersForm.selected_app_ids)
+
+    async with async_session() as session:
+        res = await session.execute(
+            select(SeriesApplication).where(SeriesApplication.series_event_id == series_event_id).order_by(SeriesApplication.created_at.asc())
+        )
+        apps = res.scalars().all()
+
+        apps_with_names = []
+        for app in apps:
+            fio = get_fio_from_answers(app.answers, app.username)
+            username_part = f"@{app.username}" if app.username else f"id:{app.user_id}"
+            display_name = f"{username_part} ({fio})"
+            apps_with_names.append((app.id, display_name))
+
+        await callback.message.answer(
+            "Прокликайте пользователей, которые получат сообщение о прохождении отбора:",
+            reply_markup=get_winners_checkbox_keyboard(apps_with_names, selected_ids, series_id)
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_winner_save_selection", SelectWinnersForm.selected_app_ids)
+async def process_admin_winner_save_selection(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    selected_ids = data.get("selected_app_ids", [])
+
+    if not selected_ids:
+        await callback.answer("Выберите хотя бы одного пользователя для прохождения отбора.", show_alert=True)
+        return
+
+    await state.set_state(SelectWinnersForm.confirming)
+
+    async with async_session() as session:
+        lines = ["Проверьте список пользователей, которые получат сообщение о прохождении отбора:\n"]
+        for idx, app_id in enumerate(selected_ids, 1):
+            app = await session.get(SeriesApplication, app_id)
+            if app:
+                fio = get_fio_from_answers(app.answers, app.username)
+                username_str = f"@{app.username}" if app.username else f"id:{app.user_id}"
+                work_link = get_work_link_from_answers(app.answers)
+                
+                lines.append(f"{idx}. {username_str} ({fio})")
+                if work_link:
+                    if work_link.startswith("http://") or work_link.startswith("https://"):
+                        lines.append(f'   <a href="{work_link}">Ссылка на работы</a>')
+                    else:
+                        lines.append(f"   Ссылка на работы: {work_link}")
+
+        summary_text = "\n".join(lines)
+        await callback.message.answer(
+            summary_text,
+            reply_markup=get_winners_confirm_keyboard(),
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_winner_back_to_confirm", SelectWinnersForm.entering_extra_text)
+async def process_admin_winner_back_to_confirm(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    selected_ids = data.get("selected_app_ids", [])
+    await state.set_state(SelectWinnersForm.confirming)
+
+    async with async_session() as session:
+        lines = ["Проверьте список пользователей, которые получат сообщение о прохождении отбора:\n"]
+        for idx, app_id in enumerate(selected_ids, 1):
+            app = await session.get(SeriesApplication, app_id)
+            if app:
+                fio = get_fio_from_answers(app.answers, app.username)
+                username_str = f"@{app.username}" if app.username else f"id:{app.user_id}"
+                work_link = get_work_link_from_answers(app.answers)
+                
+                lines.append(f"{idx}. {username_str} ({fio})")
+                if work_link:
+                    if work_link.startswith("http://") or work_link.startswith("https://"):
+                        lines.append(f'   <a href="{work_link}">Ссылка на работы</a>')
+                    else:
+                        lines.append(f"   Ссылка на работы: {work_link}")
+
+        summary_text = "\n".join(lines)
+        await callback.message.answer(
+            summary_text,
+            reply_markup=get_winners_confirm_keyboard(),
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_winner_proceed", SelectWinnersForm.confirming)
+async def process_admin_winner_proceed(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    series_event_id = data["series_event_id"]
+
+    await state.set_state(SelectWinnersForm.entering_extra_text)
+
+    async with async_session() as session:
+        sevent = await session.get(SeriesEvent, series_event_id)
+        series = await session.get(EventSeries, sevent.series_id) if sevent else None
+
+        topic_str = sevent.topic if sevent else "Мероприятие"
+        series_title = series.title if series else "Серия"
+
+        preview_text = (
+            "Пользователь получит сообщение:\n\n"
+            "<b>{ФИО из анкеты}, ваша заявка одобрена!</b>\n\n"
+            f"Поздравляем, жюри отобрало вашу заявку на участие в мероприятии: <b>{topic_str}</b> серии <b>{series_title}</b>.\n\n"
+            "<b>Хотите что-то добавить? Введите текст ниже.</b>"
+        )
+
+        await callback.message.answer(
+            preview_text,
+            reply_markup=get_cancel_keyboard(show_back=True, back_callback="admin_winner_back_to_confirm"),
+            parse_mode="HTML"
+        )
+    await callback.answer()
+
+
+@router.message(SelectWinnersForm.entering_extra_text)
+async def process_admin_winner_extra_text(message: Message, state: FSMContext):
+    extra_text = message.html_text if message.html_text else (message.text or "")
+    await state.update_data(extra_text=extra_text)
+
+    data = await state.get_data()
+    series_event_id = data["series_event_id"]
+
+    async with async_session() as session:
+        sevent = await session.get(SeriesEvent, series_event_id)
+        series = await session.get(EventSeries, sevent.series_id) if sevent else None
+
+        topic_str = sevent.topic if sevent else "Мероприятие"
+        series_title = series.title if series else "Серия"
+
+        preview_text = (
+            "Пользователь получит сообщение:\n\n"
+            "<b>{ФИО из анкеты}, ваша заявка одобрена!</b>\n\n"
+            f"Поздравляем, жюри отобрало вашу заявку на участие в мероприятии: <b>{topic_str}</b> серии <b>{series_title}</b>.\n\n"
+            f"{extra_text}"
+        )
+
+        await message.answer(
+            preview_text,
+            reply_markup=get_winners_dispatch_keyboard(),
+            parse_mode="HTML"
+        )
+
+
+@router.callback_query(F.data == "admin_winner_dispatch")
+async def process_admin_winner_dispatch(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    selected_ids = data.get("selected_app_ids", [])
+    series_event_id = data.get("series_event_id")
+    extra_text = data.get("extra_text", "")
+
+    bot = getattr(callback.message, 'bot', None) or getattr(callback, 'bot', None)
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    user_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="← К списку", callback_data="back_to_main")]
+    ])
+
+    sent_count = 0
+    async with async_session() as session:
+        sevent = await session.get(SeriesEvent, series_event_id)
+        series = await session.get(EventSeries, sevent.series_id) if sevent else None
+        topic_str = sevent.topic if sevent else "Мероприятие"
+        series_title = series.title if series else "Серия"
+
+        for app_id in selected_ids:
+            app = await session.get(SeriesApplication, app_id)
+            if app:
+                fio = get_fio_from_answers(app.answers, app.username)
+                user_msg_text = (
+                    f"<b>{fio}, ваша заявка одобрена!</b>\n\n"
+                    f"Поздравляем, жюри отобрало вашу заявку на участие в мероприятии: <b>{topic_str}</b> серии <b>{series_title}</b>."
+                )
+                if extra_text:
+                    user_msg_text += f"\n\n{extra_text}"
+
+                if bot:
+                    try:
+                        await bot.send_message(
+                            chat_id=app.user_id,
+                            text=user_msg_text,
+                            parse_mode="HTML",
+                            reply_markup=user_kb
+                        )
+                        sent_count += 1
+                    except Exception:
+                        pass
+                else:
+                    sent_count += 1
+
+    await state.clear()
+    await callback.message.answer(
+        f"Сообщение о прохождении отбора успешно отправлено выбранным участникам ({sent_count} чел.)!",
+        reply_markup=get_admin_series_actions_keyboard(sevent.series_id if sevent else 1)
+    )
+    await callback.answer()
+
 
 
 

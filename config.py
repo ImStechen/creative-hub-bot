@@ -108,6 +108,17 @@ def format_display_date(date_str: str | None) -> str:
     return f"{day_num} {month_name} {year}"
 
 
+def format_series_date(date_str: str | None) -> str:
+    """
+    Форматирует дату серии мероприятий из формата ДД.ММ.ГГГГ в ДД месяц (например, 17 сентября).
+    """
+    if not date_str:
+        return ""
+    full_fmt = format_display_date(date_str)
+    import re
+    return re.sub(r'\s+\d{4}', '', full_fmt)
+
+
 def format_partner_date(date_str: str) -> str:
     """
     Форматирует дату для партнерских мероприятий:

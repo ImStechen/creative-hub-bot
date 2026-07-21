@@ -1,5 +1,5 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from config import is_super_admin
+from config import is_super_admin, format_series_date
 
 def get_main_menu_keyboard(is_admin: bool, raffle_count: int, series_list: list = None) -> InlineKeyboardMarkup:
     """
@@ -34,7 +34,8 @@ def get_main_menu_keyboard(is_admin: bool, raffle_count: int, series_list: list 
 def get_user_series_events_keyboard(events: list) -> InlineKeyboardMarkup:
     buttons = []
     for e in events:
-        buttons.append([InlineKeyboardButton(text=f"{e.date}. {e.topic}", callback_data=f"user_sevent_{e.id}")])
+        date_str = format_series_date(e.date)
+        buttons.append([InlineKeyboardButton(text=f"{date_str}. {e.topic}", callback_data=f"user_sevent_{e.id}")])
     buttons.append([
         InlineKeyboardButton(text="Назад", callback_data="back_to_main"),
         InlineKeyboardButton(text="← К списку", callback_data="back_to_main")

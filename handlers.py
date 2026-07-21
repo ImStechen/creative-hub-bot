@@ -1270,11 +1270,13 @@ async def process_user_series(callback: CallbackQuery, state: FSMContext):
             lines.append("На данный момент нет открытых событий в этой серии.")
         else:
             for e in active_events:
-                event_block = f"<b>{e.date}. {e.topic}</b>\n"
+                date_fmt = config.format_series_date(e.date)
+                event_block = f"<b>{date_fmt}. {e.topic}</b>\n"
                 if e.extra_text:
                     event_block += f"{e.extra_text}\n"
-                event_block += f"{e.time}\n"
+                event_block += f"Время: {e.time}\n"
                 lines.append(event_block)
+            lines.append("<b>Чтобы подать заявку на участие в мероприятиях серии, выберите интересующее событие 👇</b>")
 
         text = "\n".join(lines)
         kb = get_user_series_events_keyboard(active_events)

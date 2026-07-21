@@ -1,4 +1,5 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+import config
 
 def get_admin_main_keyboard() -> InlineKeyboardMarkup:
     """
@@ -585,15 +586,19 @@ def get_admin_archive_events_keyboard(events: list, tag_idx: int) -> InlineKeybo
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_admin_export_type_keyboard() -> InlineKeyboardMarkup:
+def get_admin_export_type_keyboard(series_list: list = None) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="Активные мероприятия", callback_data="admin_export_select_active")],
-        [InlineKeyboardButton(text="Архивные мероприятия", callback_data="admin_export_select_archive")],
-        [
-            InlineKeyboardButton(text="Назад", callback_data="btn_admin"),
-            InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
-        ]
+        [InlineKeyboardButton(text="Архивные мероприятия", callback_data="admin_export_select_archive")]
     ]
+    if series_list:
+        for s in series_list:
+            buttons.append([InlineKeyboardButton(text=s.title, callback_data=f"admin_series_export_{s.id}")])
+
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data="btn_admin"),
+        InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -673,9 +678,57 @@ def get_admin_series_actions_keyboard(series_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="Удалить событие", callback_data=f"admin_series_del_event_list_{series_id}")],
         [InlineKeyboardButton(text="Редактировать текст-описание серии", callback_data=f"admin_series_edit_info_{series_id}")],
         [InlineKeyboardButton(text="Редактировать анкету регистрации", callback_data=f"admin_series_edit_form_{series_id}")],
+        [InlineKeyboardButton(text="Отобрать победителей", callback_data=f"admin_series_winners_{series_id}")],
         [
             InlineKeyboardButton(text="Назад", callback_data="admin_edit_series"),
             InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_winners_checkbox_keyboard(apps_with_names: list, selected_ids: set, series_id: int) -> InlineKeyboardMarkup:
+    """
+    Инлайн-кнопки галочек/крестиков для выбора победителей отбора.
+    apps_with_names: list of tuples (app_id, display_name)
+    """
+    buttons = []
+    current_row = []
+    for app_id, display_name in apps_with_names:
+        icon = "✅" if app_id in selected_ids else "❌"
+        btn_text = f"{icon} {display_name}"
+        current_row.append(InlineKeyboardButton(text=btn_text, callback_data=f"admin_toggle_winner_{app_id}"))
+        if len(current_row) == 2:
+            buttons.append(current_row)
+            current_row = []
+    if current_row:
+        buttons.append(current_row)
+
+    buttons.append([InlineKeyboardButton(text="Сохранить", callback_data="admin_winner_save_selection")])
+    buttons.append([
+        InlineKeyboardButton(text="Назад", callback_data=f"admin_series_winners_{series_id}"),
+        InlineKeyboardButton(text="Отмена", callback_data="admin_cancel")
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_winners_confirm_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="Сохранить и продолжить", callback_data="admin_winner_proceed")],
+        [
+            InlineKeyboardButton(text="Назад", callback_data="admin_winner_back_to_checkboxes"),
+            InlineKeyboardButton(text="Отмена", callback_data="admin_cancel")
+        ]
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def get_winners_dispatch_keyboard() -> InlineKeyboardMarkup:
+    buttons = [
+        [InlineKeyboardButton(text="Завершить и отправить", callback_data="admin_winner_dispatch")],
+        [
+            InlineKeyboardButton(text="Назад", callback_data="admin_winner_back_to_confirm"),
+            InlineKeyboardButton(text="Отмена", callback_data="admin_cancel")
         ]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -692,12 +745,15 @@ def get_questionnaire_loop_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
-def get_series_events_select_keyboard(events: list, prefix: str, series_id: int) -> InlineKeyboardMarkup:
+def get_series_events_select_keyboard(events: list, prefix: str, series_id: int, back_callback: str = None) -> InlineKeyboardMarkup:
+    if not back_callback:
+        back_callback = f"admin_select_series_{series_id}"
     buttons = []
     for e in events:
-        buttons.append([InlineKeyboardButton(text=f"{e.date} | {e.topic}", callback_data=f"{prefix}_{e.id}")])
+        date_str = config.format_series_date(e.date)
+        buttons.append([InlineKeyboardButton(text=f"{date_str} | {e.topic}", callback_data=f"{prefix}_{e.id}")])
     buttons.append([
-        InlineKeyboardButton(text="Назад", callback_data=f"admin_select_series_{series_id}"),
+        InlineKeyboardButton(text="Назад", callback_data=back_callback),
         InlineKeyboardButton(text="← К списку", callback_data="back_to_main")
     ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
