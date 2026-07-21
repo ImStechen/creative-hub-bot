@@ -44,3 +44,9 @@ async def init_db():
             await conn.execute(text("ALTER TABLE events ADD COLUMN photographer_name TEXT"))
         if "photographer_url" not in ev_columns:
             await conn.execute(text("ALTER TABLE events ADD COLUMN photographer_url TEXT"))
+
+        # Миграция: Проверка наличия колонки tag в таблице series_events
+        cursor_se = await conn.execute(text("PRAGMA table_info(series_events)"))
+        se_columns = [row[1] for row in cursor_se.fetchall()]
+        if se_columns and "tag" not in se_columns:
+            await conn.execute(text("ALTER TABLE series_events ADD COLUMN tag TEXT"))
