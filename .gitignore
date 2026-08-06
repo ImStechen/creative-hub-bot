@@ -1,0 +1,33 @@
+# Игнорировать локальную базу данных SQLite
+creative_hub.db
+test_creative_hub.db
+
+# Конфиденциальные файлы с паролями
+log pass.txt
+*.credentials
+secrets.txt
+
+# Логи
+*.log
+test_errors.log
+
+# Кэш Python
+__pycache__/
+*.pyc
+
+# Виртуальное окружение
+venv/
+.venv/
+
+# Файлы систем разработки
+.idea/
+.vscode/
+
+# Бэкапы и тестовые артефакты БД
+backups/
+*.db-shm
+*.db-wal
+test_creative_hub.db*
+
+# Документы
+*.docx
