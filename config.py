@@ -41,6 +41,13 @@ DEFAULT_NOTIFICATION_TRIGGERS = [
     "После мероприятия, когда появятся пост-материалы"
 ]
 
+# Промо-блок, добавляемый в конец сообщения об успешной регистрации на мероприятие
+WEBINAR_PROMO_TEXT = (
+    "Приглашаем вас на вебинары Школы дизайна, участники которых могут получить скидку 5% "
+    "на все курсы ДПО ШД. Узнайте подробности "
+    "<a href=\"https://design.hse.ru/dop/online-marathon/?utm_source=creative_hub\">тут</a>."
+)
+
 # Строка подключения к базе данных SQLite (асинхронная)
 DATA_DIR = os.getenv('DATA_DIR', '.')
 os.makedirs(DATA_DIR, exist_ok=True)

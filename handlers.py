@@ -504,7 +504,8 @@ async def finalize_pending_registration(message: Message, telegram_id: int, even
             f"<b>Дата:</b> {config.format_display_date(event.date)}\n"
             f"<b>Время:</b> {event.time}\n"
             f"<b>Место:</b> {event.address}\n\n"
-            f"Согласно вашим предпочтениям, вы получите напоминание:\n{reminders_text}"
+            f"Согласно вашим предпочтениям, вы получите напоминание:\n{reminders_text}\n\n"
+            f"{config.WEBINAR_PROMO_TEXT}"
         )
     elif status == "удаленно":
         confirmation_text = (
@@ -512,7 +513,8 @@ async def finalize_pending_registration(message: Message, telegram_id: int, even
             f"Вы будете удалённо на мероприятии {title_html}\n\n"
             f"<b>Дата:</b> {config.format_display_date(event.date)}\n"
             f"<b>Время:</b> {event.time}\n\n"
-            f"Согласно вашим предпочтениям, вы получите напоминание:\n{reminders_text}"
+            f"Согласно вашим предпочтениям, вы получите напоминание:\n{reminders_text}\n\n"
+            f"{config.WEBINAR_PROMO_TEXT}"
         )
         
     await message.answer(
@@ -725,28 +727,33 @@ async def process_series_event_reg_status(callback: CallbackQuery, state: FSMCon
                 f"Успешная регистрация!\n"
                 f"Вы пойдете очно как зритель на событие <b>{topic_str}</b> серии <b>{series_title}</b>.\n\n"
                 f"<b>Дата:</b> {config.format_series_date(sevent.date)}\n"
-                f"<b>Время:</b> {sevent.time}\n"
+                f"<b>Время:</b> {sevent.time}\n\n"
+                f"{config.WEBINAR_PROMO_TEXT}"
             )
         elif status == "удаленно":
             confirmation_text = (
                 f"Успешная регистрация!\n"
                 f"Вы будете удаленно смотреть событие <b>{topic_str}</b> серии <b>{series_title}</b>.\n\n"
                 f"<b>Дата:</b> {config.format_series_date(sevent.date)}\n"
-                f"<b>Время:</b> {sevent.time}\n"
+                f"<b>Время:</b> {sevent.time}\n\n"
+                f"{config.WEBINAR_PROMO_TEXT}"
             )
         elif status == "думаю":
             confirmation_text = (
-                f"Понял, вы пока не уверены, сможете ли быть на событии <b>{topic_str}</b> серии <b>{series_title}</b>."
+                f"Понял, вы пока не уверены, сможете ли быть на событии <b>{topic_str}</b> серии <b>{series_title}</b>.\n\n"
+                f"{config.WEBINAR_PROMO_TEXT}"
             )
         else:
             confirmation_text = (
-                f"Понял, вы не пойдете на событие <b>{topic_str}</b> серии <b>{series_title}</b>."
+                f"Понял, вы не пойдете на событие <b>{topic_str}</b> серии <b>{series_title}</b>.\n\n"
+                f"{config.WEBINAR_PROMO_TEXT}"
             )
 
         await callback.message.answer(
             confirmation_text,
             reply_markup=get_after_registration_keyboard(),
-            parse_mode="HTML"
+            parse_mode="HTML",
+            disable_web_page_preview=True
         )
     await callback.answer()
 
@@ -945,7 +952,8 @@ async def process_registration_status(callback: CallbackQuery, state: FSMContext
                 f"<b>Дата:</b> {config.format_display_date(event.date)}\n"
                 f"<b>Время:</b> {event.time}\n"
                 f"<b>Место:</b> {event.address}\n\n"
-                f"Согласно вашим предпочтениям, вы получите напоминание:\n{reminders_text}"
+                f"Согласно вашим предпочтениям, вы получите напоминание:\n{reminders_text}\n\n"
+                f"{config.WEBINAR_PROMO_TEXT}"
             )
         elif status == "удаленно":
             confirmation_text = (
@@ -953,17 +961,20 @@ async def process_registration_status(callback: CallbackQuery, state: FSMContext
                 f"Вы будете удалённо на мероприятии {title_html}\n\n"
                 f"<b>Дата:</b> {config.format_display_date(event.date)}\n"
                 f"<b>Время:</b> {event.time}\n\n"
-                f"Согласно вашим предпочтениям, вы получите напоминание:\n{reminders_text}"
+                f"Согласно вашим предпочтениям, вы получите напоминание:\n{reminders_text}\n\n"
+                f"{config.WEBINAR_PROMO_TEXT}"
             )
         elif status == "думаю":
             confirmation_text = (
                 f"Понял, вы пока не уверены, сможете ли быть на мероприятии {title_html}.\n\n"
-                f"Согласно вашим предпочтениям, вы получите напоминание:\n{reminders_text}"
+                f"Согласно вашим предпочтениям, вы получите напоминание:\n{reminders_text}\n\n"
+                f"{config.WEBINAR_PROMO_TEXT}"
             )
         else: # не пойду
             confirmation_text = (
                 f"Понял, вы не пойдете на мероприятие {title_html}.\n"
-                "Если оно не соответствует вашим предпочтениям, вы всегда можете изменить их в настройках."
+                "Если оно не соответствует вашим предпочтениям, вы всегда можете изменить их в настройках.\n\n"
+                f"{config.WEBINAR_PROMO_TEXT}"
             )
 
         await callback.message.answer(
