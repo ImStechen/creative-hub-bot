@@ -1,5 +1,5 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from config import is_super_admin, format_series_date
+from config import is_super_admin, format_series_date, parse_start_date
 
 def get_main_menu_keyboard(is_admin: bool, raffle_count: int, series_list: list = None) -> InlineKeyboardMarkup:
     """
@@ -33,7 +33,7 @@ def get_main_menu_keyboard(is_admin: bool, raffle_count: int, series_list: list 
 
 def get_user_series_events_keyboard(events: list) -> InlineKeyboardMarkup:
     buttons = []
-    for e in events:
+    for e in sorted(events, key=lambda ev: parse_start_date(ev.date)):
         date_str = format_series_date(e.date)
         buttons.append([InlineKeyboardButton(text=f"{date_str}. {e.topic}", callback_data=f"user_sevent_{e.id}")])
     buttons.append([
@@ -64,17 +64,25 @@ def get_cancel_feedback_keyboard() -> InlineKeyboardMarkup:
 def get_events_list_keyboard(events: list, partners_count: int = 0, series_events: list = None) -> InlineKeyboardMarkup:
     """
     Генерирует инлайн-кнопки для списка доступных мероприятий (включая события серий).
+    Обычные мероприятия и события серий идут одним списком по дате начала.
     """
-    buttons = []
+    items = []
     for event in events:
-        buttons.append([InlineKeyboardButton(text=event.title, callback_data=f"show_event_{event.id}")])
+        items.append((parse_start_date(event.date), event.title, f"show_event_{event.id}"))
 
     if series_events:
         for sevent, series_title in series_events:
             date_str = format_series_date(sevent.date)
             btn_label = f"{date_str}. {series_title}: {sevent.topic}"
-            buttons.append([InlineKeyboardButton(text=btn_label, callback_data=f"user_sevent_viewer_{sevent.id}")])
-    
+            items.append((parse_start_date(sevent.date), btn_label, f"user_sevent_viewer_{sevent.id}"))
+
+    items.sort(key=lambda item: item[0])
+
+    buttons = [
+        [InlineKeyboardButton(text=label, callback_data=callback)]
+        for _, label, callback in items
+    ]
+
     buttons.append([InlineKeyboardButton(text=f"Мероприятия партнеров ({partners_count})", callback_data="btn_partners_events")])
     buttons.append([InlineKeyboardButton(text="Назад", callback_data="back_to_main")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)

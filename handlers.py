@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import config
 from database.db import async_session
-from database.models import User, Event, Raffle, Registration, Admin, get_default_tags, get_default_notifications, FeedbackMessage, ReadPostMaterials, PartnerEvent, EventSeries, SeriesQuestion, SeriesEvent, SeriesApplication
+from database.models import User, Event, Raffle, Registration, Admin, get_default_tags, get_default_notifications, FeedbackMessage, ReadPostMaterials, PartnerEvent, EventSeries, SeriesQuestion, SeriesEvent, SeriesApplication, SeriesEventRegistration
+from messaging import answer_card
 from keyboards import (
     get_main_menu_keyboard,
     get_events_list_keyboard,
@@ -194,7 +195,7 @@ async def show_main_page(message: Message, telegram_id: int, username: str | Non
     # Проверка прав администратора
     is_admin = False
     if username:
-        if config.is_super_admin(username):
+        if config.is_super_admin_user(username, telegram_id):
             is_admin = True
         else:
             clean_username = username.lstrip('@').lower()
@@ -212,38 +213,11 @@ async def show_main_page(message: Message, telegram_id: int, username: str | Non
 
 @router.message(F.text == "/restart")
 async def cmd_restart(message: Message, state: FSMContext):
-    # Команда доступна только суперадминистратору
-    if not config.is_super_admin(message.from_user.username):
+    if not config.is_super_admin_user(message.from_user.username, message.from_user.id):
         return
 
-    import os
-    import subprocess
-    current_pid = os.getpid()
-    try:
-        # WMIC command to list python command lines
-        output = subprocess.check_output(
-            'wmic process where "name=\'python.exe\'" get commandline,processid',
-            shell=True
-        ).decode('utf-8', errors='ignore')
-        
-        for line in output.splitlines():
-            line = line.strip()
-            if not line or "ProcessId" in line:
-                continue
-            parts = line.split()
-            if len(parts) >= 2:
-                try:
-                    pid = int(parts[-1])
-                    cmdline = " ".join(parts[:-1]).lower()
-                    # Kill other duplicate instances of main.py or main test runs
-                    if pid != current_pid and ("main.py" in cmdline or "asyncio.run(main.main())" in cmdline):
-                        subprocess.run(f"taskkill /F /PID {pid}", shell=True)
-                except Exception:
-                    pass
-    except Exception:
-        pass
-
-    # Redirect user to start flow
+    from process_control import kill_other_bot_processes
+    kill_other_bot_processes()
     await cmd_start(message, state)
 
 
@@ -260,14 +234,18 @@ async def cmd_delete(message: Message, state: FSMContext):
             user.full_name = None
             user.email = None
             user.phone = "-"
+            user.username = None
             user.is_registered = False
             user.tags_preferences = get_default_tags()
             user.notification_preferences = get_default_notifications()
-            
-            # Delete registrations
-            await session.execute(delete(Registration).where(Registration.user_id == telegram_id))
             session.add(user)
-            await session.commit()
+
+        await session.execute(delete(Registration).where(Registration.user_id == telegram_id))
+        await session.execute(delete(SeriesEventRegistration).where(SeriesEventRegistration.user_id == telegram_id))
+        await session.execute(delete(SeriesApplication).where(SeriesApplication.user_id == telegram_id))
+        await session.execute(delete(FeedbackMessage).where(FeedbackMessage.user_id == telegram_id))
+        await session.execute(delete(ReadPostMaterials).where(ReadPostMaterials.user_id == telegram_id))
+        await session.commit()
             
         await message.answer("Ваша регистрационная информация и предпочтения успешно удалены.")
         # Start onboarding from scratch
@@ -355,15 +333,10 @@ async def process_reg_skip_phone(callback: CallbackQuery, state: FSMContext):
             
         await callback.message.answer("Регистрация успешно завершена!")
         
-        pending_event_id = data.get("pending_event_id")
-        pending_status = data.get("pending_status")
-        
-        if pending_event_id and pending_status:
-            await state.clear()
-            await finalize_pending_registration(callback.message, telegram_id, pending_event_id, pending_status, session)
-        else:
-            await state.clear()
-            await show_main_page(callback.message, telegram_id, username, session)
+        await state.clear()
+        await complete_pending_booking(
+            callback.message, telegram_id, username, data, session
+        )
             
     await callback.answer()
 
@@ -432,15 +405,74 @@ async def process_reg_phone(message: Message, state: FSMContext):
             
         await message.answer("Регистрация успешно завершена!")
         
-        pending_event_id = data.get("pending_event_id")
-        pending_status = data.get("pending_status")
-        
-        if pending_event_id and pending_status:
-            await state.clear()
-            await finalize_pending_registration(message, telegram_id, pending_event_id, pending_status, session)
-        else:
-            await state.clear()
-            await show_main_page(message, telegram_id, username, session)
+        await state.clear()
+        await complete_pending_booking(message, telegram_id, username, data, session)
+
+
+async def complete_pending_booking(
+    message: Message,
+    telegram_id: int,
+    username: str | None,
+    data: dict,
+    session: AsyncSession,
+):
+    pending_status = data.get("pending_status")
+    pending_event_id = data.get("pending_event_id")
+    pending_sevent_id = data.get("pending_sevent_id")
+    if pending_event_id and pending_status:
+        await finalize_pending_registration(message, telegram_id, pending_event_id, pending_status, session)
+    elif pending_sevent_id and pending_status:
+        await finalize_pending_series_registration(
+            message, telegram_id, pending_sevent_id, pending_status, session
+        )
+    else:
+        await show_main_page(message, telegram_id, username, session)
+
+
+async def finalize_pending_series_registration(
+    message: Message, telegram_id: int, sevent_id: int, status: str, session: AsyncSession
+):
+    sevent = await session.get(SeriesEvent, sevent_id)
+    if not sevent:
+        await message.answer("Событие не найдено.")
+        return
+    series = await session.get(EventSeries, sevent.series_id)
+    current_date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    sreg_query = select(SeriesEventRegistration).where(
+        SeriesEventRegistration.user_id == telegram_id,
+        SeriesEventRegistration.series_event_id == sevent_id,
+    )
+    sreg = (await session.execute(sreg_query)).scalar_one_or_none()
+    if sreg:
+        sreg.status = status
+        sreg.created_at = current_date_str
+        sreg.reminded_24h = False
+        sreg.reminded_2h = False
+    else:
+        sreg = SeriesEventRegistration(
+            user_id=telegram_id,
+            series_event_id=sevent_id,
+            status=status,
+            created_at=current_date_str,
+            reminded_24h=False,
+            reminded_2h=False,
+        )
+        session.add(sreg)
+    await session.commit()
+
+    series_title = series.title if series else "Серия"
+    confirmation_text = (
+        f"Успешная регистрация!\n"
+        f"Вы записаны на событие <b>{config.html_text(sevent.topic)}</b> "
+        f"серии <b>{config.html_text(series_title)}</b> ({config.html_text(status)}).\n\n"
+        f"{config.WEBINAR_PROMO_TEXT}"
+    )
+    await message.answer(
+        confirmation_text,
+        reply_markup=get_after_registration_keyboard(),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
 
 
 async def finalize_pending_registration(message: Message, telegram_id: int, event_id: int, status: str, session: AsyncSession):
@@ -550,15 +582,7 @@ def get_event_end_date(date_str: str) -> datetime:
 
 
 def get_event_start_date(date_str: str) -> datetime:
-    try:
-        if "-" in date_str:
-            parts = date_str.split("-")
-            start_date_str = parts[0].strip()
-        else:
-            start_date_str = date_str.strip()
-        return datetime.strptime(start_date_str, "%d.%m.%Y")
-    except Exception:
-        return datetime.now()
+    return config.parse_start_date(date_str)
 
 
 @router.callback_query(F.data == "btn_events_info")
@@ -645,18 +669,7 @@ async def process_user_sevent_viewer_detail(callback: CallbackQuery):
 
         kb = get_series_event_viewer_keyboard(sevent.id)
 
-        if series.image_id:
-            try:
-                await callback.message.answer_photo(
-                    photo=series.image_id,
-                    caption=card_text,
-                    reply_markup=kb,
-                    parse_mode="HTML"
-                )
-            except Exception:
-                await callback.message.answer(card_text, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
-        else:
-            await callback.message.answer(card_text, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
+        await answer_card(callback.message, card_text, reply_markup=kb, photo=series.image_id)
     await callback.answer()
 
 
@@ -709,12 +722,16 @@ async def process_series_event_reg_status(callback: CallbackQuery, state: FSMCon
             if sreg:
                 sreg.status = status
                 sreg.created_at = current_date_str
+                sreg.reminded_24h = False
+                sreg.reminded_2h = False
             else:
                 sreg = SeriesEventRegistration(
                     user_id=telegram_id,
                     series_event_id=sevent_id,
                     status=status,
-                    created_at=current_date_str
+                    created_at=current_date_str,
+                    reminded_24h=False,
+                    reminded_2h=False,
                 )
                 session.add(sreg)
             await session.commit()
@@ -840,20 +857,12 @@ async def process_show_event(callback: CallbackQuery):
         
         kb = get_event_detail_keyboard(event.id)
         
-        if event.images and len(event.images) > 0:
-            await callback.message.answer_photo(
-                photo=event.images[0],
-                caption=text,
-                reply_markup=kb,
-                parse_mode="HTML"
-            )
-        else:
-            await callback.message.answer(
-                text,
-                reply_markup=kb,
-                parse_mode="HTML",
-                disable_web_page_preview=True
-            )
+        await answer_card(
+            callback.message,
+            text,
+            reply_markup=kb,
+            photo=event.images[0] if event.images else None,
+        )
     await callback.answer()
 
 
@@ -1374,9 +1383,10 @@ async def process_feedback_message(message: Message, state: FSMContext):
     
     admin_notification = (
         f"📬 <b>Новое сообщение обратной связи!</b>\n\n"
-        f"<b>Отправитель:</b> <a href=\"tg://user?id={telegram_id}\">{full_name}</a> ({username_str})\n"
+        f"<b>Отправитель:</b> <a href=\"tg://user?id={telegram_id}\">{config.html_text(full_name)}</a> "
+        f"({config.html_text(username_str)})\n"
         f"<b>ID:</b> <code>{telegram_id}</code>\n\n"
-        f"<b>Сообщение:</b>\n{feedback_text}"
+        f"<b>Сообщение:</b>\n{config.html_text(feedback_text)}"
     )
 
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -1452,7 +1462,7 @@ async def process_user_series(callback: CallbackQuery, state: FSMContext):
         res = await session.execute(
             select(SeriesEvent).where(SeriesEvent.series_id == series_id, SeriesEvent.is_deleted == 0)
         )
-        active_events = res.scalars().all()
+        active_events = sorted(res.scalars().all(), key=lambda e: get_event_start_date(e.date))
 
         lines = [
             f"<b>{series.title}</b>\n",
@@ -1475,28 +1485,7 @@ async def process_user_series(callback: CallbackQuery, state: FSMContext):
         text = "\n".join(lines)
         kb = get_user_series_events_keyboard(active_events)
 
-        if series.image_id:
-            try:
-                await callback.message.answer_photo(
-                    photo=series.image_id,
-                    caption=text,
-                    reply_markup=kb,
-                    parse_mode="HTML"
-                )
-            except Exception:
-                await callback.message.answer(
-                    text,
-                    reply_markup=kb,
-                    parse_mode="HTML",
-                    disable_web_page_preview=True
-                )
-        else:
-            await callback.message.answer(
-                text,
-                reply_markup=kb,
-                parse_mode="HTML",
-                disable_web_page_preview=True
-            )
+        await answer_card(callback.message, text, reply_markup=kb, photo=series.image_id)
 
     await callback.answer()
 
@@ -1545,7 +1534,7 @@ async def process_user_sevent_start(callback: CallbackQuery, state: FSMContext):
 
 @router.message(SeriesAppForm.current_question_index)
 async def process_series_app_answer(message: Message, state: FSMContext):
-    user_answer = message.html_text if message.html_text else message.text
+    user_answer = message.text
     if not user_answer:
         await message.answer("Пожалуйста, введите текстовый ответ:", reply_markup=get_cancel_feedback_keyboard())
         return
@@ -1575,7 +1564,7 @@ async def process_series_app_answer(message: Message, state: FSMContext):
 
         summary_lines = ["<b>Проверьте вашу заявку:</b>\n"]
         for i, (q_text, a_text) in enumerate(answers.items(), 1):
-            summary_lines.append(f"<b>{i}. {q_text}</b>\n{a_text}\n")
+            summary_lines.append(f"<b>{i}. {q_text}</b>\n{config.html_text(a_text)}\n")
 
         summary_text = "\n".join(summary_lines)
         await message.answer(

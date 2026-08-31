@@ -1,12 +1,14 @@
 import asyncio
 from datetime import datetime, timedelta
-from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message, BufferedInputFile
+from typing import Any, Awaitable, Callable, Dict
+from aiogram import Router, F, BaseMiddleware
+from aiogram.types import CallbackQuery, Message, BufferedInputFile, TelegramObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from handlers import is_event_hidden
+from messaging import answer_card, send_card
 from keyboards import get_to_main_keyboard, get_event_notification_keyboard
 
 import config
@@ -171,15 +173,79 @@ class SelectWinnersForm(StatesGroup):
 # ПРОВЕРКА ДОСТУПА
 # ==========================================
 
-async def is_user_admin(username: str | None, session: AsyncSession) -> bool:
+async def is_user_admin(
+    username: str | None,
+    session: AsyncSession,
+    telegram_id: int | None = None,
+) -> bool:
+    if config.is_super_admin_user(username, telegram_id):
+        return True
+
+    if telegram_id is not None:
+        by_id = await session.execute(select(Admin).where(Admin.telegram_id == telegram_id))
+        admin_by_id = by_id.scalar_one_or_none()
+        if admin_by_id:
+            if username:
+                clean = username.lstrip("@")
+                if admin_by_id.username != clean:
+                    admin_by_id.username = clean
+                    session.add(admin_by_id)
+                    try:
+                        await session.commit()
+                    except Exception:
+                        await session.rollback()
+            return True
+
     if not username:
         return False
-    if config.is_super_admin(username):
-        return True
-    clean_username = username.lstrip('@').lower()
-    query = select(Admin).where(func.lower(Admin.username) == clean_username)
-    result = await session.execute(query)
-    return result.scalar_one_or_none() is not None
+
+    clean_username = username.lstrip("@").lower()
+    result = await session.execute(select(Admin).where(func.lower(Admin.username) == clean_username))
+    admin = result.scalar_one_or_none()
+    if not admin:
+        return False
+
+    if admin.telegram_id is not None:
+        return telegram_id == admin.telegram_id
+
+    if telegram_id is not None:
+        admin.telegram_id = telegram_id
+        session.add(admin)
+        try:
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            return True
+    return True
+
+
+class AdminAccessMiddleware(BaseMiddleware):
+    """Блокирует все сработавшие админ-хендлеры для не-админов."""
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: Dict[str, Any],
+    ) -> Any:
+        user = getattr(event, "from_user", None)
+        username = user.username if user else None
+        telegram_id = user.id if user else None
+        async with async_session() as session:
+            allowed = await is_user_admin(username, session, telegram_id=telegram_id)
+        if allowed:
+            return await handler(event, data)
+
+        state = data.get("state")
+        if state is not None:
+            await state.clear()
+        if isinstance(event, CallbackQuery) or getattr(event, "data", None) is not None:
+            await event.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
+        return None
+
+
+router.callback_query.middleware(AdminAccessMiddleware())
+router.message.middleware(AdminAccessMiddleware())
 
 
 async def get_admin_welcome_text(session: AsyncSession) -> str:
@@ -815,20 +881,12 @@ async def save_event_to_db(message: Message, state: FSMContext):
         
         kb = get_after_event_created_keyboard()
         
-        if event.images and len(event.images) > 0:
-            await message.answer_photo(
-                photo=event.images[0],
-                caption=text,
-                reply_markup=kb,
-                parse_mode="HTML"
-            )
-        else:
-            await message.answer(
-                text,
-                reply_markup=kb,
-                parse_mode="HTML",
-                disable_web_page_preview=True
-            )
+        await answer_card(
+            message,
+            text,
+            reply_markup=kb,
+            photo=event.images[0] if event.images else None,
+        )
 
 
 # ----- Редактирование существующего мероприятия -----
@@ -1112,10 +1170,12 @@ async def process_edit_event_value(message: Message, state: FSMContext):
         )
         
         kb = get_after_edit_event_keyboard(event_id)
-        if event.images and len(event.images) > 0:
-            await message.answer_photo(photo=event.images[0], caption=text, reply_markup=kb, parse_mode="HTML")
-        else:
-            await message.answer(text, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
+        await answer_card(
+            message,
+            text,
+            reply_markup=kb,
+            photo=event.images[0] if event.images else None,
+        )
 
 
 # ----- Удаление мероприятия -----
@@ -1763,10 +1823,11 @@ async def process_admin_rights(callback: CallbackQuery):
         result = await session.execute(query)
         admins = result.scalars().all()
         
-        admin_list = [f"@{config.SUPER_ADMIN_USERNAME}"]
+        admin_list = [f"@{config.SUPER_ADMIN_USERNAME} (суперадмин)"]
         for a in admins:
             if a.username.lower() != config.SUPER_ADMIN_USERNAME.lower():
-                admin_list.append(f"@{a.username}")
+                bound = f" · id {a.telegram_id}" if a.telegram_id else " · id ещё не привязан"
+                admin_list.append(f"@{a.username}{bound}")
                 
         admin_text = "\n".join(admin_list)
         text = f"Администраторы бота:\n\n{admin_text}"
@@ -1826,12 +1887,25 @@ async def process_save_admin_rights(message: Message, state: FSMContext):
             )
             return
             
-        new_admin = Admin(username=username)
+        user_res = await session.execute(
+            select(User).where(func.lower(User.username) == username.lower())
+        )
+        known_user = user_res.scalar_one_or_none()
+        new_admin = Admin(
+            username=username,
+            telegram_id=known_user.telegram_id if known_user else None,
+        )
         session.add(new_admin)
         await session.commit()
+
+        extra = ""
+        if known_user:
+            extra = " Права привязаны к Telegram ID — смена ника не передаст доступ."
+        else:
+            extra = " Пользователь ещё не писал боту: ID привяжется при первом заходе в админку."
         
     await message.answer(
-        f"Пользователь @{username} успешно добавлен в список администраторов.",
+        f"Пользователь @{username} успешно добавлен в список администраторов.{extra}",
         reply_markup=get_admin_main_keyboard()
     )
 
@@ -2244,22 +2318,13 @@ async def send_post_mats_notifications(bot, event_id: int):
         )
 
         try:
-            if images and len(images) > 0:
-                await bot.send_photo(
-                    chat_id=user.telegram_id,
-                    photo=images[0],
-                    caption=notification_text,
-                    parse_mode="HTML",
-                    reply_markup=user_kb
-                )
-            else:
-                await bot.send_message(
-                    chat_id=user.telegram_id,
-                    text=notification_text,
-                    parse_mode="HTML",
-                    reply_markup=user_kb,
-                    disable_web_page_preview=True
-                )
+            await send_card(
+                bot,
+                user.telegram_id,
+                notification_text,
+                reply_markup=user_kb,
+                photo=images[0] if images else None,
+            )
             await asyncio.sleep(0.05)
         except Exception as e:
             logger.error(f"Failed to send post-mats notification to user {user.telegram_id}: {e}")
@@ -2469,20 +2534,12 @@ async def send_stream_url_notifications(bot, event_id: int):
     
     for user in users:
         try:
-            if images and len(images) > 0:
-                await bot.send_photo(
-                    chat_id=user.telegram_id,
-                    photo=images[0],
-                    caption=notification_text,
-                    parse_mode="HTML"
-                )
-            else:
-                await bot.send_message(
-                    chat_id=user.telegram_id,
-                    text=notification_text,
-                    parse_mode="HTML",
-                    disable_web_page_preview=True
-                )
+            await send_card(
+                bot,
+                user.telegram_id,
+                notification_text,
+                photo=images[0] if images else None,
+            )
             await asyncio.sleep(0.05)
         except Exception as e:
             logger.error(f"Failed to send stream URL notification to user {user.telegram_id}: {e}")
@@ -2532,22 +2589,13 @@ async def send_event_creation_notifications(bot, event):
             continue
             
         try:
-            if event.images and len(event.images) > 0:
-                await bot.send_photo(
-                    chat_id=user.telegram_id,
-                    photo=event.images[0],
-                    caption=notification_text,
-                    reply_markup=get_event_notification_keyboard(event.id),
-                    parse_mode="HTML"
-                )
-            else:
-                await bot.send_message(
-                    chat_id=user.telegram_id,
-                    text=notification_text,
-                    reply_markup=get_event_notification_keyboard(event.id),
-                    parse_mode="HTML",
-                    disable_web_page_preview=True
-                )
+            await send_card(
+                bot,
+                user.telegram_id,
+                notification_text,
+                reply_markup=get_event_notification_keyboard(event.id),
+                photo=event.images[0] if event.images else None,
+            )
             await asyncio.sleep(0.05)
         except Exception as e:
             logger.error(f"Failed to send event notification to user {user.telegram_id}: {e}")
@@ -2761,7 +2809,15 @@ async def process_admin_export_event(callback: CallbackQuery):
             else:
                 tg_username = "-"
 
-            ws.append([fio, email, phone, source, status, reg_date, tg_username])
+            ws.append([
+                config.excel_cell(fio),
+                config.excel_cell(email),
+                config.excel_cell(phone),
+                source,
+                config.excel_cell(status),
+                config.excel_cell(reg_date),
+                config.excel_cell(tg_username),
+            ])
 
         # Adjust column widths dynamically
         for col in ws.columns:
@@ -2801,13 +2857,14 @@ class AdminFeedbackStates(StatesGroup):
 
 
 async def render_feedback_message(message: Message, feedback: FeedbackMessage, index: int, total: int):
+    uname = f"@{feedback.username}" if feedback.username else "нет юзернейма"
     text = (
         f"💬 <b>Обращение {index + 1} из {total}</b>\n"
-        f"<b>Отправитель:</b> <a href=\"tg://user?id={feedback.user_id}\">{feedback.full_name}</a> "
-        f"({f'@{feedback.username}' if feedback.username else 'нет юзернейма'})\n"
+        f"<b>Отправитель:</b> <a href=\"tg://user?id={feedback.user_id}\">{config.html_text(feedback.full_name)}</a> "
+        f"({config.html_text(uname)})\n"
         f"<b>ID:</b> <code>{feedback.user_id}</code>\n"
-        f"<b>Дата отправки:</b> {feedback.created_at}\n\n"
-        f"<b>Текст обращения:</b>\n{feedback.text}"
+        f"<b>Дата отправки:</b> {config.html_text(feedback.created_at)}\n\n"
+        f"<b>Текст обращения:</b>\n{config.html_text(feedback.text)}"
     )
     await message.edit_text(
         text,
@@ -2903,13 +2960,13 @@ async def process_admin_reply_feedback(callback: CallbackQuery, state: FSMContex
         fm = res.scalar_one_or_none()
         if fm:
             name = fm.full_name
-            user_link = f'<a href="tg://user?id={user_id}">{name}</a>'
+            user_link = f'<a href="tg://user?id={user_id}">{config.html_text(name)}</a>'
         else:
             from database.models import User
             user = await session.get(User, user_id)
             if user:
                 name = user.full_name or "Пользователь"
-                user_link = f'<a href="tg://user?id={user_id}">{name}</a>'
+                user_link = f'<a href="tg://user?id={user_id}">{config.html_text(name)}</a>'
             else:
                 user_link = f'<a href="tg://user?id={user_id}">Пользователь {user_id}</a>'
                 
@@ -2938,7 +2995,7 @@ async def process_admin_reply_message(message: Message, state: FSMContext):
     bot = message.bot
     user_notification = (
         "Новый ответ от поддержки бота <b>Эксклюзивно: Креативный хаб НИУ ВШЭ</b>:\n\n"
-        f"{reply_text}"
+        f"{config.html_text(reply_text)}"
     )
     
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -3744,9 +3801,13 @@ async def process_admin_export_sevent(callback: CallbackQuery):
             for app in apps:
                 username_str = f"@{app.username}" if app.username else "нет юзернейма"
                 answers_dict = app.answers if isinstance(app.answers, dict) else {}
-                row = [app.user_id, username_str, app.created_at]
+                row = [
+                    app.user_id,
+                    config.excel_cell(username_str),
+                    config.excel_cell(app.created_at),
+                ]
                 for q_title in header_questions:
-                    row.append(answers_dict.get(q_title, ""))
+                    row.append(config.excel_cell(answers_dict.get(q_title, "")))
                 ws1.append(row)
 
             stream1 = io.BytesIO()
@@ -3766,12 +3827,12 @@ async def process_admin_export_sevent(callback: CallbackQuery):
                 username_str = f"@{u.username}" if u.username else "нет юзернейма"
                 ws2.append([
                     u.telegram_id,
-                    u.full_name or "Не указано",
-                    username_str,
-                    u.email or "Не указано",
-                    u.phone or "Не указано",
-                    sreg.status,
-                    sreg.created_at
+                    config.excel_cell(u.full_name or "Не указано"),
+                    config.excel_cell(username_str),
+                    config.excel_cell(u.email or "Не указано"),
+                    config.excel_cell(u.phone or "Не указано"),
+                    config.excel_cell(sreg.status),
+                    config.excel_cell(sreg.created_at),
                 ])
 
             stream2 = io.BytesIO()

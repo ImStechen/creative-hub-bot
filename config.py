@@ -1,10 +1,14 @@
 # Глобальные настройки и константы
 import os
+from datetime import datetime
 
 TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN", "YOUR_BOT_TOKEN_PLACEHOLDER")
 
 # Никнейм суперадминистратора
 SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME", "ASaavedraA")
+
+# Telegram ID суперадминистратора (необязательно, но надёжнее username)
+SUPER_ADMIN_TELEGRAM_ID = os.getenv("SUPER_ADMIN_TELEGRAM_ID", "").strip()
 
 # Список доступных тегов по умолчанию в системе
 DEFAULT_TAGS = [
@@ -63,6 +67,53 @@ def is_super_admin(username: str | None) -> bool:
     # Убираем '@', если он есть в начале никнейма
     clean_username = username.lstrip('@')
     return clean_username.lower() == SUPER_ADMIN_USERNAME.lower()
+
+
+def is_super_admin_id(telegram_id: int | None) -> bool:
+    if not SUPER_ADMIN_TELEGRAM_ID or telegram_id is None:
+        return False
+    try:
+        return int(telegram_id) == int(SUPER_ADMIN_TELEGRAM_ID)
+    except (TypeError, ValueError):
+        return False
+
+
+def is_super_admin_user(username: str | None, telegram_id: int | None = None) -> bool:
+    if is_super_admin_id(telegram_id):
+        return True
+    if SUPER_ADMIN_TELEGRAM_ID:
+        return False
+    return is_super_admin(username)
+
+
+def html_text(value) -> str:
+    """Экранирует пользовательский текст для parse_mode=HTML."""
+    from html import escape
+    if value is None:
+        return ""
+    return escape(str(value), quote=True)
+
+
+def excel_cell(value) -> str:
+    """Защита от formula injection при выгрузке в Excel."""
+    text = "" if value is None else str(value)
+    if text[:1] in ("=", "+", "-", "@"):
+        return "'" + text
+    return text
+
+
+def parse_start_date(date_str: str | None) -> datetime:
+    """
+    Дата начала мероприятия для сортировки. Понимает ДД.ММ.ГГГГ и диапазон
+    ДД.ММ.ГГГГ-ДД.ММ.ГГГГ. Неразобранные даты уходят в конец списка.
+    """
+    if not date_str:
+        return datetime.max
+    raw = date_str.split("-")[0].strip()
+    try:
+        return datetime.strptime(raw, "%d.%m.%Y")
+    except ValueError:
+        return datetime.max
 
 
 def format_display_date(date_str: str | None) -> str:

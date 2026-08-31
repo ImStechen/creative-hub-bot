@@ -593,13 +593,13 @@ async def test_suite():
         row2 = [cell.value for cell in ws[2]]
         assert row2[0] == "Алексеев Алексей"
         assert row2[4] == "очно"
-        assert row2[6] == "@dummy456"
+        assert row2[6] == "'@dummy456"
 
         # Row 3 should be the thinking one ("думаю")
         row3 = [cell.value for cell in ws[3]]
         assert row3[0] == "Кузнецов Пётр"
         assert row3[4] == "думаю"
-        assert row3[6] == "@john_doe"
+        assert row3[6] == "'@john_doe"
 
         print("Admin registrations Excel export test PASSED!")
 
@@ -1483,6 +1483,8 @@ async def test_suite():
             )).scalar_one_or_none()
             assert sreg is not None
             assert sreg.status == "очно"
+            assert sreg.reminded_24h is False
+            assert sreg.reminded_2h is False
 
         # 25.4 Admin Export Series Registrations (Dual Excel Export & Counts)
         cb_exp_list = DummyCallbackQuery(f"admin_series_export_{series_id}", 999, "ASaavedraA", DummyMessage(999, "ASaavedraA"))
@@ -1492,6 +1494,80 @@ async def test_suite():
         await admin_handlers.process_admin_export_sevent(cb_exp_sevent)
 
         print("Event Series Deep Integration test PASSED!")
+
+        print("Testing admin middleware rejects non-admin callbacks...")
+        mw = admin_handlers.AdminAccessMiddleware()
+        denied_cb = DummyCallbackQuery("admin_add_event", 555, "regular_user", DummyMessage(555, "regular_user"))
+        called = {"v": False}
+
+        async def fake_admin_handler(event, data):
+            called["v"] = True
+
+        await mw(fake_admin_handler, denied_cb, {"state": DummyState()})
+        assert called["v"] is False
+        assert denied_cb.answered is True
+        print("Admin middleware rejection test PASSED!")
+
+        print("Testing events list is sorted by start date...")
+        async with async_session() as test_session:
+            test_session.add_all([
+                Event(id=9201, title="Поздний ивент", date="20.12.2026", time="12:00",
+                      address="HSE", tags=["Наука"], images=[]),
+                Event(id=9202, title="Ранний ивент", date="02.02.2026", time="12:00",
+                      address="HSE", tags=["Наука"], images=[]),
+                Event(id=9203, title="Средний ивент", date="15.07.2026", time="12:00",
+                      address="HSE", tags=["Наука"], images=[]),
+            ])
+            await test_session.commit()
+
+        order_msg = DummyMessage(123, "john_doe")
+        await handlers.process_events_info(
+            DummyCallbackQuery("btn_events_info", 123, "john_doe", order_msg), DummyState()
+        )
+        order_kb = order_msg.sent_messages[-1][1]
+        order_labels = [btn.text for row in order_kb.inline_keyboard for btn in row]
+        positions = [order_labels.index(t) for t in ("Ранний ивент", "Средний ивент", "Поздний ивент")]
+        assert positions == sorted(positions)
+        print("Events list sorting test PASSED!")
+
+        print("Testing long event card with image is not rejected by caption limit...")
+        async with async_session() as test_session:
+            long_event = Event(
+                id=9100,
+                title="Мероприятие с длинным описанием",
+                date="10.09.2026",
+                time="18:30",
+                address="Москва, Пантелеевская 53",
+                description="Очень длинный текст. " * 120,
+                tags=["Наука"],
+                images=["fake_file_id"],
+            )
+            test_session.add(long_event)
+            await test_session.commit()
+
+        card_msg = DummyMessage(123, "john_doe")
+        await handlers.process_show_event(
+            DummyCallbackQuery("show_event_9100", 123, "john_doe", card_msg)
+        )
+        from messaging import CAPTION_LIMIT, tg_length
+
+        sent_texts = [m[0] or "" for m in card_msg.sent_messages]
+        assert any(tg_length(t) > CAPTION_LIMIT for t in sent_texts)
+        assert all(tg_length(t) <= 4096 for t in sent_texts)
+        assert "Мероприятие с длинным описанием" in "".join(sent_texts)
+        assert card_msg.sent_messages[-1][1] is not None
+        print("Long event card test PASSED!")
+
+        print("Testing admin rights bind to telegram_id...")
+        async with async_session() as test_session:
+            stolen = Admin(username="regular_user", telegram_id=999001)
+            test_session.add(stolen)
+            await test_session.commit()
+            allowed_owner = await admin_handlers.is_user_admin("regular_user", test_session, telegram_id=999001)
+            allowed_thief = await admin_handlers.is_user_admin("regular_user", test_session, telegram_id=555)
+            assert allowed_owner is True
+            assert allowed_thief is False
+        print("Admin telegram_id bind test PASSED!")
 
 
 def main():
