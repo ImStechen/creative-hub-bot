@@ -181,7 +181,9 @@ async def is_user_admin(
     if config.is_super_admin_user(username, telegram_id):
         return True
 
-    if telegram_id is not None:
+    has_tg_id_col = hasattr(Admin, "telegram_id")
+
+    if has_tg_id_col and telegram_id is not None:
         by_id = await session.execute(select(Admin).where(Admin.telegram_id == telegram_id))
         admin_by_id = by_id.scalar_one_or_none()
         if admin_by_id:
@@ -205,8 +207,12 @@ async def is_user_admin(
     if not admin:
         return False
 
-    if admin.telegram_id is not None:
-        return telegram_id == admin.telegram_id
+    if not has_tg_id_col:
+        return True
+
+    bound_id = getattr(admin, "telegram_id", None)
+    if bound_id is not None:
+        return telegram_id == bound_id
 
     if telegram_id is not None:
         admin.telegram_id = telegram_id
@@ -1826,7 +1832,9 @@ async def process_admin_rights(callback: CallbackQuery):
         admin_list = [f"@{config.SUPER_ADMIN_USERNAME} (суперадмин)"]
         for a in admins:
             if a.username.lower() != config.SUPER_ADMIN_USERNAME.lower():
-                bound = f" · id {a.telegram_id}" if a.telegram_id else " · id ещё не привязан"
+                # getattr: на случай, если models.py ещё без поля telegram_id
+                tg_id = getattr(a, "telegram_id", None)
+                bound = f" · id {tg_id}" if tg_id else " · id ещё не привязан"
                 admin_list.append(f"@{a.username}{bound}")
                 
         admin_text = "\n".join(admin_list)
@@ -1891,18 +1899,19 @@ async def process_save_admin_rights(message: Message, state: FSMContext):
             select(User).where(func.lower(User.username) == username.lower())
         )
         known_user = user_res.scalar_one_or_none()
-        new_admin = Admin(
-            username=username,
-            telegram_id=known_user.telegram_id if known_user else None,
-        )
+        new_admin_kwargs = {"username": username}
+        if hasattr(Admin, "telegram_id") and known_user is not None:
+            new_admin_kwargs["telegram_id"] = known_user.telegram_id
+        new_admin = Admin(**new_admin_kwargs)
         session.add(new_admin)
         await session.commit()
 
         extra = ""
-        if known_user:
-            extra = " Права привязаны к Telegram ID — смена ника не передаст доступ."
-        else:
-            extra = " Пользователь ещё не писал боту: ID привяжется при первом заходе в админку."
+        if hasattr(Admin, "telegram_id"):
+            if known_user:
+                extra = " Права привязаны к Telegram ID — смена ника не передаст доступ."
+            else:
+                extra = " Пользователь ещё не писал боту: ID привяжется при первом заходе в админку."
         
     await message.answer(
         f"Пользователь @{username} успешно добавлен в список администраторов.{extra}",
