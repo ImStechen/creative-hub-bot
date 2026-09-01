@@ -284,7 +284,7 @@ async def get_admin_welcome_text(session: AsyncSession) -> str:
 async def process_admin_menu(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     async with async_session() as session:
-        if not await is_user_admin(callback.from_user.username, session):
+        if not await is_user_admin(callback.from_user.username, session, telegram_id=callback.from_user.id):
             await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
             return
 
@@ -2663,7 +2663,7 @@ async def send_raffle_creation_notifications(bot, raffle):
 @router.callback_query(F.data == "admin_export_registrations")
 async def process_admin_export_registrations(callback: CallbackQuery):
     async with async_session() as session:
-        if not await is_user_admin(callback.from_user.username, session):
+        if not await is_user_admin(callback.from_user.username, session, telegram_id=callback.from_user.id):
             await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
             return
         
@@ -2680,7 +2680,7 @@ async def process_admin_export_registrations(callback: CallbackQuery):
 @router.callback_query(F.data == "admin_export_select_active")
 async def process_admin_export_select_active(callback: CallbackQuery):
     async with async_session() as session:
-        if not await is_user_admin(callback.from_user.username, session):
+        if not await is_user_admin(callback.from_user.username, session, telegram_id=callback.from_user.id):
             await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
             return
 
@@ -2711,7 +2711,7 @@ async def process_admin_export_select_active(callback: CallbackQuery):
 @router.callback_query(F.data == "admin_export_select_archive")
 async def process_admin_export_select_archive(callback: CallbackQuery):
     async with async_session() as session:
-        if not await is_user_admin(callback.from_user.username, session):
+        if not await is_user_admin(callback.from_user.username, session, telegram_id=callback.from_user.id):
             await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
             return
 
@@ -2732,7 +2732,7 @@ async def process_admin_exarchtag_select(callback: CallbackQuery):
         return
 
     async with async_session() as session:
-        if not await is_user_admin(callback.from_user.username, session):
+        if not await is_user_admin(callback.from_user.username, session, telegram_id=callback.from_user.id):
             await callback.answer("У вас нет прав доступа.", show_alert=True)
             return
 
@@ -2767,7 +2767,7 @@ async def process_admin_export_event(callback: CallbackQuery):
     
     event_id = int(callback.data.split("_")[3])
     async with async_session() as session:
-        if not await is_user_admin(callback.from_user.username, session):
+        if not await is_user_admin(callback.from_user.username, session, telegram_id=callback.from_user.id):
             await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
             return
 
@@ -2887,7 +2887,7 @@ async def render_feedback_message(message: Message, feedback: FeedbackMessage, i
 async def process_admin_view_feedback(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     async with async_session() as session:
-        if not await is_user_admin(callback.from_user.username, session):
+        if not await is_user_admin(callback.from_user.username, session, telegram_id=callback.from_user.id):
             await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
             return
 
@@ -3039,7 +3039,7 @@ async def process_admin_reply_message(message: Message, state: FSMContext):
 @router.callback_query(F.data == "admin_add_partner_event")
 async def process_admin_add_partner_event(callback: CallbackQuery, state: FSMContext):
     async with async_session() as session:
-        if not await is_user_admin(callback.from_user.username, session):
+        if not await is_user_admin(callback.from_user.username, session, telegram_id=callback.from_user.id):
             await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
             return
         await state.set_state(PartnerEventForm.title)
@@ -3150,7 +3150,7 @@ async def process_add_partner_link(message: Message, state: FSMContext):
 @router.callback_query(F.data == "admin_del_partner_event_list")
 async def process_admin_del_partner_event_list(callback: CallbackQuery):
     async with async_session() as session:
-        if not await is_user_admin(callback.from_user.username, session):
+        if not await is_user_admin(callback.from_user.username, session, telegram_id=callback.from_user.id):
             await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
             return
 
@@ -3190,7 +3190,7 @@ async def process_admin_del_partner_event_list(callback: CallbackQuery):
 async def process_admin_del_pevent(callback: CallbackQuery):
     event_id = int(callback.data.split("_")[3])
     async with async_session() as session:
-        if not await is_user_admin(callback.from_user.username, session):
+        if not await is_user_admin(callback.from_user.username, session, telegram_id=callback.from_user.id):
             await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
             return
 
@@ -3215,7 +3215,7 @@ async def process_admin_del_pevent(callback: CallbackQuery):
 async def process_admin_edit_series(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     async with async_session() as session:
-        if not await is_user_admin(callback.from_user.username, session):
+        if not await is_user_admin(callback.from_user.username, session, telegram_id=callback.from_user.id):
             await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
             return
 
@@ -3232,7 +3232,7 @@ async def process_admin_edit_series(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "admin_create_series")
 async def process_admin_create_series(callback: CallbackQuery, state: FSMContext):
     async with async_session() as session:
-        if not await is_user_admin(callback.from_user.username, session):
+        if not await is_user_admin(callback.from_user.username, session, telegram_id=callback.from_user.id):
             await callback.answer("У вас нет прав доступа к этому разделу.", show_alert=True)
             return
 

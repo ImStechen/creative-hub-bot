@@ -1569,6 +1569,19 @@ async def test_suite():
             assert allowed_thief is False
         print("Admin telegram_id bind test PASSED!")
 
+        print("Testing bound admin can open admin section...")
+        async with async_session() as test_session:
+            test_session.add(User(telegram_id=999002, username="second_admin", is_registered=True))
+            test_session.add(Admin(username="second_admin", telegram_id=999002))
+            await test_session.commit()
+
+        bound_msg = DummyMessage(999002, "second_admin")
+        bound_cb = DummyCallbackQuery("btn_admin", 999002, "second_admin", bound_msg)
+        await admin_handlers.process_admin_menu(bound_cb, DummyState())
+        assert bound_msg.sent_messages, "Админ с привязанным ID не получил меню"
+        assert "Привет, Админ!" in bound_msg.sent_messages[-1][0]
+        print("Bound admin access test PASSED!")
+
 
 def main():
     print("Starting comprehensive Bot Test Suite...")
