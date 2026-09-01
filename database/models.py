@@ -131,9 +131,10 @@ class Admin(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String, unique=True, nullable=False) # Телеграм-никнейм без символа @
+    telegram_id = Column(BigInteger, unique=True, nullable=True)
 
     def __repr__(self):
-        return f"<Admin id={self.id} username={self.username}>"
+        return f"<Admin id={self.id} username={self.username} telegram_id={self.telegram_id}>"
 
 
 class SystemTag(Base):
@@ -259,6 +260,8 @@ class SeriesEventRegistration(Base):
     user_id = Column(BigInteger, ForeignKey('users.telegram_id', ondelete="CASCADE"), nullable=False)
     status = Column(String, nullable=False) # очно / удаленно / думаю / не пойду
     created_at = Column(String, nullable=False) # YYYY-MM-DD HH:MM:SS
+    reminded_24h = Column(Boolean, nullable=False, default=False, server_default="0")
+    reminded_2h = Column(Boolean, nullable=False, default=False, server_default="0")
 
     event = relationship("SeriesEvent", back_populates="guest_registrations")
 

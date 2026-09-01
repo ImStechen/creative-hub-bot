@@ -19,6 +19,13 @@ Base = declarative_base()
 from sqlalchemy import text
 from datetime import datetime
 
+async def _add_column_if_missing(conn, table: str, column: str, ddl: str):
+    cursor = await conn.execute(text(f"PRAGMA table_info({table})"))
+    columns = [row[1] for row in cursor.fetchall()]
+    if columns and column not in columns:
+        await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {ddl}"))
+
+
 async def init_db():
     """
     Инициализация базы данных: создание всех таблиц.
@@ -39,16 +46,10 @@ async def init_db():
                 {"now": now_str}
             )
             
-        # Миграция: Проверка наличия колонок фотографа в таблице events
-        cursor_ev = await conn.execute(text("PRAGMA table_info(events)"))
-        ev_columns = [row[1] for row in cursor_ev.fetchall()]
-        if "photographer_name" not in ev_columns:
-            await conn.execute(text("ALTER TABLE events ADD COLUMN photographer_name TEXT"))
-        if "photographer_url" not in ev_columns:
-            await conn.execute(text("ALTER TABLE events ADD COLUMN photographer_url TEXT"))
-
-        # Миграция: Проверка наличия колонки tag в таблице series_events
-        cursor_se = await conn.execute(text("PRAGMA table_info(series_events)"))
-        se_columns = [row[1] for row in cursor_se.fetchall()]
-        if se_columns and "tag" not in se_columns:
-            await conn.execute(text("ALTER TABLE series_events ADD COLUMN tag TEXT"))
+        await _add_column_if_missing(conn, "events", "photographer_name", "photographer_name TEXT")
+        await _add_column_if_missing(conn, "events", "photographer_url", "photographer_url TEXT")
+        await _add_column_if_missing(conn, "series_events", "tag", "tag TEXT")
+        await _add_column_if_missing(conn, "admins", "telegram_id", "telegram_id INTEGER")
+        await conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_admins_telegram_id ON admins(telegram_id)"))
+        await _add_column_if_missing(conn, "series_event_registrations", "reminded_24h", "reminded_24h INTEGER NOT NULL DEFAULT 0")
+        await _add_column_if_missing(conn, "series_event_registrations", "reminded_2h", "reminded_2h INTEGER NOT NULL DEFAULT 0")
