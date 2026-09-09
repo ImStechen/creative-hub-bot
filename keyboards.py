@@ -312,7 +312,7 @@ def get_registration_keyboard(step: int) -> InlineKeyboardMarkup:
     buttons = []
     if step == 3:
         buttons.append([InlineKeyboardButton(text="Пропустить этот пункт", callback_data="reg_skip_phone")])
-    buttons.append([InlineKeyboardButton(text="Пропустить регистрацию", callback_data="reg_skip")])
+    buttons.append([InlineKeyboardButton(text="Пропустить авторизацию", callback_data="reg_skip")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -344,7 +344,7 @@ def get_agreement_keyboard() -> InlineKeyboardMarkup:
     """
     buttons = [
         [InlineKeyboardButton(text="✅ Принять Положение и продолжить", callback_data="reg_accept")],
-        [InlineKeyboardButton(text="Пропустить регистрацию", callback_data="reg_skip")]
+        [InlineKeyboardButton(text="Пропустить авторизацию", callback_data="reg_skip")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 

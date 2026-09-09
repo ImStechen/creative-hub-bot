@@ -35,6 +35,15 @@ from keyboards import (
 
 router = Router()
 
+AUTH_INTRO_TEXT = (
+    "<b>Но сперва познакомимся!</b>\n\n"
+    "Чтобы попасть на наши мероприятия (очно и удалённо), нужно авторизоваться. "
+    "Можно каждый раз заполнять анкету на сайте Вышки, а можно — один раз оставить контакты в боте.\n\n"
+    "Авторизация откроет доступ к более тонкой настройке уведомлений и позволит записываться на события одной кнопкой.\n\n"
+    "Продолжая авторизацию, вы принимаете <a href=\"https://www.hse.ru/data_protection_regulation\">Положение об обработке персональных данных НИУ ВШЭ</a>."
+)
+
+
 class RegistrationStates(StatesGroup):
     accept_agreement = State()
     full_name = State()
@@ -247,7 +256,7 @@ async def cmd_delete(message: Message, state: FSMContext):
         await session.execute(delete(ReadPostMaterials).where(ReadPostMaterials.user_id == telegram_id))
         await session.commit()
             
-        await message.answer("Ваша регистрационная информация и предпочтения успешно удалены.")
+        await message.answer("Ваши данные авторизации и предпочтения успешно удалены.")
         # Start onboarding from scratch
         await cmd_start(message, state)
 
@@ -278,14 +287,7 @@ async def cmd_start(message: Message, state: FSMContext):
 
         if not db_user.is_registered:
             await state.set_state(RegistrationStates.accept_agreement)
-            reg_text = (
-                "<b>Но сперва познакомимся!</b>\n\n"
-                "Чтобы попасть на наши мероприятия (очно и удалённо), нужно зарегистрироваться. "
-                "Можно каждый раз заполнять анкету на сайте Вышки, а можно — один раз авторизоваться в боте.\n\n"
-                "Авторизация откроет доступ к более тонкой настройке уведомлений и позволит записываться на события одной кнопкой.\n\n"
-                "Продолжая авторизацию, вы принимаете <a href=\"https://www.hse.ru/data_protection_regulation\">Положение об обработке персональных данных НИУ ВШЭ</a>."
-            )
-            await message.answer(reg_text, reply_markup=get_agreement_keyboard(), parse_mode="HTML")
+            await message.answer(AUTH_INTRO_TEXT, reply_markup=get_agreement_keyboard(), parse_mode="HTML")
         else:
             await show_main_page(message, telegram_id, username, session)
 
@@ -308,7 +310,7 @@ async def process_reg_skip(callback: CallbackQuery, state: FSMContext):
     username = callback.from_user.username
     async with async_session() as session:
         await show_main_page(callback.message, telegram_id, username, session)
-    await callback.answer("Регистрация пропущена")
+    await callback.answer("Авторизация пропущена")
 
 
 @router.callback_query(F.data == "reg_skip_phone", RegistrationStates.phone)
@@ -331,7 +333,7 @@ async def process_reg_skip_phone(callback: CallbackQuery, state: FSMContext):
             session.add(user)
             await session.commit()
             
-        await callback.message.answer("Регистрация успешно завершена!")
+        await callback.message.answer("Авторизация успешно завершена!")
         
         await state.clear()
         await complete_pending_booking(
@@ -403,7 +405,7 @@ async def process_reg_phone(message: Message, state: FSMContext):
             session.add(user)
             await session.commit()
             
-        await message.answer("Регистрация успешно завершена!")
+        await message.answer("Авторизация успешно завершена!")
         
         await state.clear()
         await complete_pending_booking(message, telegram_id, username, data, session)
@@ -688,14 +690,7 @@ async def process_series_event_reg_status(callback: CallbackQuery, state: FSMCon
         if (not user or not user.is_registered) and status in ["очно", "удаленно"]:
             await state.update_data(pending_sevent_id=sevent_id, pending_status=status)
             await state.set_state(RegistrationStates.accept_agreement)
-            reg_text = (
-                "<b>Но сперва познакомимся!</b>\n\n"
-                "Чтобы попасть на наши мероприятия (очно и удалённо), нужно зарегистрироваться. "
-                "Можно каждый раз заполнять анкету на сайте Вышки, а можно — один раз авторизоваться в боте.\n\n"
-                "Авторизация откроет доступ к более тонкой настройке уведомлений и позволит записываться на события одной кнопкой.\n\n"
-                "Продолжая авторизацию, вы принимаете <a href=\"https://www.hse.ru/data_protection_regulation\">Положение об обработке персональных данных НИУ ВШЭ</a>."
-            )
-            await callback.message.answer(reg_text, reply_markup=get_agreement_keyboard(), parse_mode="HTML")
+            await callback.message.answer(AUTH_INTRO_TEXT, reply_markup=get_agreement_keyboard(), parse_mode="HTML")
             await callback.answer()
             return
 
@@ -880,14 +875,7 @@ async def process_registration_status(callback: CallbackQuery, state: FSMContext
         if (not user or not user.is_registered) and status in ["очно", "удаленно"]:
             await state.update_data(pending_event_id=event_id, pending_status=status)
             await state.set_state(RegistrationStates.accept_agreement)
-            reg_text = (
-                "<b>Но сперва познакомимся!</b>\n\n"
-                "Чтобы попасть на наши мероприятия (очно и удалённо), нужно зарегистрироваться. "
-                "Можно каждый раз заполнять анкету на сайте Вышки, а можно — один раз авторизоваться в боте.\n\n"
-                "Авторизация откроет доступ к более тонкой настройке уведомлений и позволит записываться на события одной кнопкой.\n\n"
-                "Продолжая авторизацию, вы принимаете <a href=\"https://www.hse.ru/data_protection_regulation\">Положение об обработке персональных данных НИУ ВШЭ</a>."
-            )
-            await callback.message.answer(reg_text, reply_markup=get_agreement_keyboard(), parse_mode="HTML")
+            await callback.message.answer(AUTH_INTRO_TEXT, reply_markup=get_agreement_keyboard(), parse_mode="HTML")
             await callback.answer()
             return
 

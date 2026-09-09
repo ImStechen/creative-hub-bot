@@ -2,59 +2,15 @@ import os
 import sys
 import sqlite3
 
-# Вшитые данные из вашего Excel файла
-REGISTRATIONS_DATA = [
-  {
-    "fio": "Ярахмедова Шарипат",
-    "email": "Yarakhmedova.sharipat@mail.ru",
-    "phone": "+79674016464",
-    "status": "удаленно",
-    "reg_date": "05.07.2026",
-    "tg_nick": "-"
-  },
-  {
-    "fio": "Савчук Анастасия",
-    "email": "sevennastya@gmail.com",
-    "phone": "+79261908035",
-    "status": "очно",
-    "reg_date": "06.07.2026",
-    "tg_nick": "@ana_cup"
-  },
-  {
-    "fio": "Цветная Екатерина",
-    "email": "katyacolor18@gmail.com",
-    "phone": "+79509111019",
-    "status": "удаленно",
-    "reg_date": "06.07.2026",
-    "tg_nick": "@ekaterinatsvetnaya"
-  },
-  {
-    "fio": "Мартыненко Анастасия",
-    "email": "ananmartynenko@edu.hse.ru",
-    "phone": "+79635312209",
-    "status": "очно",
-    "reg_date": "06.07.2026",
-    "tg_nick": "@anast_mart"
-  },
-  {
-    "fio": "Полякова Дарья",
-    "email": "polyakova.dasha@mail.ru",
-    "phone": "+79152203304",
-    "status": "очно",
-    "reg_date": "06.07.2026",
-    "tg_nick": "@dolyakova"
-  },
-  {
-    "fio": "Иванов Дмитрий",
-    "email": "divanov@yandex.ru",
-    "phone": "+79031112233",
-    "status": "удаленно",
-    "reg_date": "06.07.2026",
-    "tg_nick": "-"
-  }
-]
+# Данные для разового восстановления. НЕ коммитьте персональные данные.
+# Скрипт читает список словарей с ключами: fio, email, phone, status, reg_date, tg_nick.
+REGISTRATIONS_DATA = []
 
 def main():
+    if not REGISTRATIONS_DATA:
+        print("REGISTRATIONS_DATA пуст. Не вставляйте персональные данные в git.")
+        sys.exit(1)
+
     db_path = "creative_hub.db"
     
     if not os.path.exists(db_path):

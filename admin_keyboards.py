@@ -398,7 +398,7 @@ def get_admin_delete_select_keyboard(admins: list) -> InlineKeyboardMarkup:
     """
     buttons = []
     for a in admins:
-        if a.username.lower() != "asaavedraa":
+        if a.username.lower() != config.SUPER_ADMIN_USERNAME.lower():
             buttons.append([InlineKeyboardButton(text=f"@{a.username}", callback_data=f"admin_del_rights_{a.id}")])
     buttons.append([InlineKeyboardButton(text="В Администрирование", callback_data="btn_admin")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)

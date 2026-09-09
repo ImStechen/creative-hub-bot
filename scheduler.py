@@ -167,19 +167,19 @@ async def check_and_send_reminders(bot: Bot):
                 trigger_name = ""
 
                 if sreg.status == "очно":
-                    if is_one_day_window:
+                    if is_one_day_window and not sreg.reminded_24h:
                         trigger_name = "За день до мероприятия, на которое я иду очно"
-                    elif is_two_hours_window:
+                    elif is_two_hours_window and not sreg.reminded_2h:
                         trigger_name = "За два часа до мероприятия, на которое я иду очно"
                 elif sreg.status == "удаленно":
-                    if is_one_day_window:
+                    if is_one_day_window and not sreg.reminded_24h:
                         trigger_name = "За день до мероприятия, на котором я буду удалённо"
-                    elif is_two_hours_window:
+                    elif is_two_hours_window and not sreg.reminded_2h:
                         trigger_name = "За два часа до мероприятия, на котором я буду удалённо"
                 elif sreg.status == "думаю":
-                    if is_one_day_window:
+                    if is_one_day_window and not sreg.reminded_24h:
                         trigger_name = "За день до мероприятия, насчет которого я сомневаюсь"
-                    elif is_two_hours_window:
+                    elif is_two_hours_window and not sreg.reminded_2h:
                         trigger_name = "За два часа до мероприятия, насчет которого я сомневаюсь"
 
                 if trigger_name and user_prefs.get(trigger_name, False):
@@ -190,7 +190,8 @@ async def check_and_send_reminders(bot: Bot):
                         timing_desc = "завтра" if is_one_day_window else "через 2 часа"
                         notification_text = (
                             f"🔔 <b>Напоминание о событии серии!</b>\n\n"
-                            f"Событие <b>{sevent.topic}</b> серии <b>{series_title}</b> начнется {timing_desc}!\n\n"
+                            f"Событие <b>{config.html_text(sevent.topic)}</b> серии "
+                            f"<b>{config.html_text(series_title)}</b> начнется {timing_desc}!\n\n"
                             f"📆 <b>Дата:</b> {config.format_series_date(sevent.date)}\n"
                             f"⏳ <b>Время:</b> {sevent.time}\n"
                         )
@@ -202,6 +203,14 @@ async def check_and_send_reminders(bot: Bot):
                             disable_web_page_preview=True
                         )
                         logger.info(f"Reminded user {user.telegram_id} about series event {sevent.id}")
+
+                        if is_one_day_window:
+                            sreg.reminded_24h = True
+                        elif is_two_hours_window:
+                            sreg.reminded_2h = True
+                        session.add(sreg)
+                        await session.commit()
+
                         await asyncio.sleep(0.05)
                     except Exception as e:
                         logger.error(f"Failed to remind user {user.telegram_id} for series event: {e}")

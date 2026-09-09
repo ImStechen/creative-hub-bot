@@ -3,6 +3,9 @@ creative_hub.db
 test_creative_hub.db
 
 # Конфиденциальные файлы с паролями
+.env
+.env.*
+!.env.example
 log pass.txt
 *.credentials
 secrets.txt
