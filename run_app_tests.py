@@ -1582,6 +1582,27 @@ async def test_suite():
         assert "Привет, Админ!" in bound_msg.sent_messages[-1][0]
         print("Bound admin access test PASSED!")
 
+        print("Testing event hiding uses Hub timezone, not server clock...")
+        hub_now = config.now_local()
+        just_passed = hub_now - timedelta(hours=1)
+        upcoming = hub_now + timedelta(hours=1)
+
+        expired_event = Event(
+            id=9300, title="Уже скрыт", date="09.09.2026", time="19:00", address="HSE",
+            tags=["Наука"], images=[],
+            hide_date=just_passed.strftime("%d.%m.%Y"),
+            hide_time=just_passed.strftime("%H:%M"),
+        )
+        visible_event = Event(
+            id=9301, title="Ещё виден", date="09.09.2026", time="19:00", address="HSE",
+            tags=["Наука"], images=[],
+            hide_date=upcoming.strftime("%d.%m.%Y"),
+            hide_time=upcoming.strftime("%H:%M"),
+        )
+        assert handlers.is_event_hidden(expired_event) is True
+        assert handlers.is_event_hidden(visible_event) is False
+        print("Event hiding timezone test PASSED!")
+
 
 def main():
     print("Starting comprehensive Bot Test Suite...")

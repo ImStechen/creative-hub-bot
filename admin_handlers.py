@@ -259,7 +259,7 @@ async def get_admin_welcome_text(session: AsyncSession) -> str:
     total_res = await session.execute(total_query)
     total_users = total_res.scalar() or 0
 
-    now = datetime.now()
+    now = config.now_local()
     last_24h = (now - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
     last_7d = (now - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -3158,7 +3158,7 @@ async def process_admin_del_partner_event_list(callback: CallbackQuery):
         result = await session.execute(query)
         events = result.scalars().all()
         
-        today = datetime.now().date()
+        today = config.now_local().date()
         active_partners = []
         for pe in events:
             try:

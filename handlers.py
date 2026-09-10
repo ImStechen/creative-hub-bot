@@ -72,7 +72,7 @@ def is_event_hidden(event: Event) -> bool:
     time_str = event.hide_time or "00:00"
     try:
         hide_datetime = datetime.strptime(f"{event.hide_date} {time_str}", "%d.%m.%Y %H:%M")
-        return datetime.now() > hide_datetime
+        return config.now_local() > hide_datetime
     except ValueError:
         return False
 
@@ -89,7 +89,7 @@ async def get_active_raffles_count(session: AsyncSession, user_tags: dict) -> in
     if not active_raffles:
         return 0
         
-    now = datetime.now()
+    now = config.now_local()
     valid_raffles = []
     
     for r in active_raffles:
@@ -439,7 +439,7 @@ async def finalize_pending_series_registration(
         await message.answer("Событие не найдено.")
         return
     series = await session.get(EventSeries, sevent.series_id)
-    current_date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_date_str = config.now_local().strftime("%Y-%m-%d %H:%M:%S")
     sreg_query = select(SeriesEventRegistration).where(
         SeriesEventRegistration.user_id == telegram_id,
         SeriesEventRegistration.series_event_id == sevent_id,
@@ -491,7 +491,7 @@ async def finalize_pending_registration(message: Message, telegram_id: int, even
     reg_result = await session.execute(reg_query)
     reg = reg_result.scalar_one_or_none()
     
-    current_date_str = datetime.now().strftime("%d.%m.%Y")
+    current_date_str = config.now_local().strftime("%d.%m.%Y")
     
     if reg:
         reg.status = status
@@ -626,7 +626,7 @@ async def process_events_info(callback: CallbackQuery, state: FSMContext):
         partners_res = await session.execute(partners_query)
         all_partners = partners_res.scalars().all()
         
-        today = datetime.now().date()
+        today = config.now_local().date()
         actual_partners_count = 0
         for pe in all_partners:
             end_date = get_event_end_date(pe.date).date()
@@ -707,7 +707,7 @@ async def process_series_event_reg_status(callback: CallbackQuery, state: FSMCon
         sreg_result = await session.execute(sreg_query)
         sreg = sreg_result.scalar_one_or_none()
 
-        current_date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        current_date_str = config.now_local().strftime("%Y-%m-%d %H:%M:%S")
 
         if status == "не пойду":
             if sreg:
@@ -777,7 +777,7 @@ async def process_partners_events(callback: CallbackQuery):
         partners_res = await session.execute(partners_query)
         all_partners = partners_res.scalars().all()
         
-        today = datetime.now().date()
+        today = config.now_local().date()
         actual_partners = []
         for pe in all_partners:
             end_date = get_event_end_date(pe.date).date()
@@ -891,7 +891,7 @@ async def process_registration_status(callback: CallbackQuery, state: FSMContext
         reg_result = await session.execute(reg_query)
         reg = reg_result.scalar_one_or_none()
 
-        current_date_str = datetime.now().strftime("%d.%m.%Y")
+        current_date_str = config.now_local().strftime("%d.%m.%Y")
 
         if status == "не пойду":
             if reg:
@@ -1273,7 +1273,7 @@ async def process_raffle_info(callback: CallbackQuery):
         result = await session.execute(query)
         active_raffles = result.scalars().all()
         
-        now = datetime.now()
+        now = config.now_local()
         valid_raffles = []
         
         for r in active_raffles:
@@ -1392,7 +1392,7 @@ async def process_feedback_message(message: Message, state: FSMContext):
             full_name=full_name,
             username=username,
             text=feedback_text,
-            created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            created_at=config.now_local().strftime("%Y-%m-%d %H:%M:%S")
         )
         session.add(new_feedback)
         await session.commit()
@@ -1597,7 +1597,7 @@ async def process_confirm_series_app(callback: CallbackQuery, state: FSMContext)
             user_id=telegram_id,
             username=username,
             answers=answers,
-            created_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            created_at=config.now_local().strftime("%Y-%m-%d %H:%M:%S")
         )
         session.add(new_app)
         await session.commit()

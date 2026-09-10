@@ -33,7 +33,7 @@ class User(Base):
     notification_preferences = Column(JSON, nullable=False, default=get_default_notifications)
 
     # Время создания аккаунта
-    created_at = Column(String, nullable=True, default=lambda: datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    created_at = Column(String, nullable=True, default=lambda: config.now_local().strftime("%Y-%m-%d %H:%M:%S"))
 
     # Отношение к регистрациям
     registrations = relationship("Registration", back_populates="user", cascade="all, delete-orphan")

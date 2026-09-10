@@ -1,6 +1,20 @@
 # Глобальные настройки и константы
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+# Часовой пояс, в котором админы задают даты и время (по умолчанию Москва, UTC+3).
+# Сервер может жить по UTC, поэтому сравнивать с datetime.now() напрямую нельзя.
+try:
+    TZ_OFFSET_HOURS = int(os.getenv("TZ_OFFSET_HOURS", "3"))
+except ValueError:
+    TZ_OFFSET_HOURS = 3
+
+LOCAL_TZ = timezone(timedelta(hours=TZ_OFFSET_HOURS))
+
+
+def now_local() -> datetime:
+    """Текущее время в часовом поясе Хаба, без tzinfo — для сравнения с датами из БД."""
+    return datetime.now(timezone.utc).astimezone(LOCAL_TZ).replace(tzinfo=None)
 
 TG_BOT_TOKEN = os.getenv("TG_BOT_TOKEN", "YOUR_BOT_TOKEN_PLACEHOLDER")
 

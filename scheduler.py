@@ -24,7 +24,7 @@ async def check_and_send_reminders(bot: Bot):
         events = events_result.scalars().all()
         
         # Получаем текущее время в Московском часовом поясе (UTC+3) для корректного сравнения с БД
-        now = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=3))).replace(tzinfo=None)
+        now = config.now_local()
         
         for event in events:
             # Парсим дату и время начала события
